@@ -1,0 +1,36 @@
+# Fly.io configuration for the IB Desk API staging service.
+#
+# This deploys services/api/Dockerfile with Fly's remote builder, so no local
+# Docker is required. The database connection string is provided as a Fly secret
+# and is never committed:
+#
+#   fly secrets set DATABASE_URL="postgresql://...?sslmode=require" --app <app-name>
+#
+# After the web app is deployed to Vercel, allow its origin for CORS:
+#
+#   fly secrets set WEB_ORIGIN="https://<your-web>.vercel.app" --app <app-name>
+#
+# The app name below must be globally unique on Fly. Change it if it is taken.
+
+app = "ib-desk-api-staging"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  APP_VERSION = "0.1.0"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
