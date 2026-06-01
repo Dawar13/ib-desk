@@ -1,0 +1,42 @@
+# Secrets and environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Node / Next.js (apps/web)
+node_modules/
+.next/
+out/
+build/
+dist/
+.turbo/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python / FastAPI (services/api)
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env.local
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Uploaded files and local artifacts
+/tmp/
+*.log
