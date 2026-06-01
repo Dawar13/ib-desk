@@ -11,6 +11,11 @@ test("home page shows connectivity and the seeded sample sheet", async ({
 
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   await expect(page.getByText("Sample sheet")).toBeVisible();
-  await expect(page.getByText("Overview")).toBeVisible();
+  // Target the section heading by role. A plain getByText("Overview") would also
+  // match the cell text "Sample overview ..." (case-insensitive substring) and
+  // trip Playwright strict mode.
+  await expect(
+    page.getByRole("heading", { name: "Overview", exact: true }),
+  ).toBeVisible();
   await expect(page.getByText(/^Sample overview/)).toBeVisible();
 });
