@@ -287,8 +287,17 @@ client document, number, source, or citation is included.
 
 ## Phase 0 implementation notes
 
-Two concrete decisions made in Phase 0 are worth recording.
+A few concrete decisions made in Phase 0 are worth recording.
 
+- GET /v1/documents returns a DocumentListItem, which is the table mirror
+  Document plus the id of the document's one sheet (sheet_id, from a left join).
+  BUILD_PLAN.md describes the list as documents only, but with exactly three
+  Phase 0 endpoints the client needs the sheet id to navigate from a document to
+  its sheet. The base Document type stays a faithful table mirror; sheet_id is a
+  nullable augmentation on the list item only.
+- The CI uv version is pinned to the same release that generated services/api/uv.lock
+  so the service, e2e, and docker jobs read the committed lock without a schema
+  mismatch. Bump the pin and regenerate the lock together if uv is upgraded.
 - The web scaffold is hand-authored rather than generated with create-next-app.
   Hand authoring yields an identical result (App Router, strict TypeScript,
   Tailwind, ESLint, and Prettier) while staying deterministic inside the
