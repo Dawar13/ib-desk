@@ -1,0 +1,8 @@
+# Normalize line endings. All text files are stored with LF in the repository,
+# regardless of contributor platform, so Linux CI and the Docker build never see
+# CRLF in scripts, the Makefile, or SQL. Binary files are left untouched.
+* text=auto eol=lf
+
+# Lockfiles are text and must stay LF.
+pnpm-lock.yaml text eol=lf
+uv.lock text eol=lf
