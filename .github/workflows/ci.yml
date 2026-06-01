@@ -1,0 +1,238 @@
+name: CI
+
+# Phase 0 continuous integration for IB Desk.
+#
+# Runs on every push and pull request with no branch filter. Four independent
+# jobs prove the skeleton is wired: web (lint, typecheck, build), service
+# (migrate, seed, lint, typecheck, test against a real pgvector Postgres), e2e
+# (run the API and the web app, then drive them with Playwright), and docker
+# (build the service image as a deployability check).
+#
+# Action major versions are pinned. The env values below are local CI values,
+# not secrets. No real credentials are committed.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  web:
+    name: Web lint, typecheck, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck shared types
+        run: pnpm run shared:typecheck
+
+      - name: Lint web
+        run: pnpm run web:lint
+
+      - name: Typecheck web
+        run: pnpm run web:typecheck
+
+      - name: Build web
+        run: pnpm run web:build
+
+  service:
+    name: Service migrate, seed, lint, typecheck, test
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ib_desk
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ib_desk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ib_desk"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.7"
+
+      - name: Sync dependencies
+        working-directory: services/api
+        run: uv sync
+
+      - name: Apply migration
+        working-directory: services/api
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/migrations/0001_init.sql
+
+      - name: Seed sample data
+        working-directory: services/api
+        run: uv run python -m app.seed
+
+      - name: Ruff check
+        working-directory: services/api
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        working-directory: services/api
+        run: uv run ruff format --check .
+
+      - name: Mypy
+        working-directory: services/api
+        run: uv run mypy app
+
+      - name: Pytest
+        working-directory: services/api
+        run: uv run pytest -q
+
+  e2e:
+    name: End to end
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ib_desk
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      E2E_BASE_URL: http://localhost:3000
+      WEB_ORIGIN: http://localhost:3000
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ib_desk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ib_desk"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.7"
+
+      - name: Sync service dependencies
+        working-directory: services/api
+        run: uv sync
+
+      - name: Apply migration
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+
+      - name: Seed sample data
+        working-directory: services/api
+        run: uv run python -m app.seed
+
+      - name: Start API
+        working-directory: services/api
+        run: nohup uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/api.log 2>&1 &
+
+      - name: Wait for API
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:8000/health | jq -e '.database == "connected"' >/dev/null 2>&1; then
+              echo "API is up and reports connected."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not report connected within 60 seconds."
+          echo "----- /tmp/api.log -----"
+          cat /tmp/api.log || true
+          exit 1
+
+      - name: Build web
+        run: pnpm run web:build
+
+      - name: Start web
+        run: nohup pnpm run web:start > /tmp/web.log 2>&1 &
+
+      - name: Wait for web
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 || true)
+            if [ "$code" = "200" ]; then
+              echo "Web is up and returned HTTP 200."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Web did not return HTTP 200 within 60 seconds."
+          echo "----- /tmp/web.log -----"
+          cat /tmp/web.log || true
+          exit 1
+
+      - name: Install Playwright browser
+        run: pnpm --filter @ib-desk/web exec playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        run: pnpm --filter @ib-desk/web exec playwright test
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build service image
+        run: docker build -t ib-desk-api services/api

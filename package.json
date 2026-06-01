@@ -1,0 +1,17 @@
+{
+  "name": "ib-desk",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "shared:typecheck": "pnpm --filter @ib-desk/shared typecheck",
+    "web:dev": "pnpm --filter @ib-desk/web dev",
+    "web:build": "pnpm --filter @ib-desk/web build",
+    "web:start": "pnpm --filter @ib-desk/web start",
+    "web:lint": "pnpm --filter @ib-desk/web lint",
+    "web:typecheck": "pnpm --filter @ib-desk/web typecheck",
+    "e2e": "pnpm --filter @ib-desk/web e2e"
+  }
+}
