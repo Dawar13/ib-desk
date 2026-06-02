@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "IB Desk",
-  description: "Phase 0 wiring proof for the IB Desk research sheet builder.",
+  description: "Ingest research documents into the IB Desk sheet builder.",
 };
 
 export default function RootLayout({

@@ -8,11 +8,14 @@ FastAPI service, a shared TypeScript types package, and a Postgres schema with
 pgvector reserved for future similar-sheet search. This README is the full local
 bring-up guide, so a fresh clone can run from this document alone.
 
-Phase 0 is a wiring proof only. There is no document parsing, no model calls, no
-authentication, and no real spreadsheet UI yet. The home page proves that the
-path web -> service -> database -> back is connected, by reading a health
-endpoint and rendering a single seeded sample sheet. See BUILD_PLAN.md for the
-phase roadmap and CLAUDE.md for the principles and conventions.
+Phase 1 adds ingestion and the document store. A user uploads a PDF or DOCX, or
+pastes text; the service parses and normalizes it to clean canonical text, stores
+the original bytes, records the document and an idle sheet, and the web app lists
+and previews it. There is no model intelligence yet: no extraction, no sections
+or cells, no grid, no charts, no export, and no authentication. Phase 0 remains a
+wiring proof underneath, with the health endpoint and the seeded sample sheet.
+See BUILD_PLAN.md for the phase roadmap and CLAUDE.md for the principles and
+conventions.
 
 ## Prerequisites
 
@@ -109,41 +112,79 @@ Windows PowerShell:
 Copy-Item apps/web/.env.example apps/web/.env.local
 ```
 
-The settings that matter in Phase 0:
+The settings that matter so far:
 
 - DATABASE_URL: the asyncpg connection string for your Postgres, for example
   postgres://postgres:postgres@localhost:5432/ibdesk. The service reads this to
   open its connection pool, and the migrate and seed steps read it too. When it
   is unset, the service still starts and reports the database as disconnected.
 - WEB_ORIGIN: the allowed CORS origin for the web app, default
-  http://localhost:3000.
+  http://localhost:3000. CORS now allows GET and POST so the ingestion upload
+  and paste requests and their preflight succeed.
 - APP_VERSION: the version string the health endpoint reports, default 0.1.0.
 - NEXT_PUBLIC_API_BASE_URL: the base URL the web app uses to reach the service,
   default http://localhost:8000.
 
-Several additional keys (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, the STORAGE_
-keys, and OPENAI_API_KEY) are reserved in services/api/.env.example for later
-phases. They are documented there only and are not read by any Phase 0 code.
+Storage and ingestion settings (Phase 1), in services/api/.env.example:
 
-## Apply the migration and seed
+- STORAGE_BACKEND: where original uploaded files are stored, either local or
+  supabase. Default is local, which writes to the filesystem and needs no
+  secret. This is what the document-store and end to end checks use in CI.
+- STORAGE_LOCAL_PATH: the directory used by the local backend, default
+  ./.local-storage. It is gitignored, so stored uploads stay out of version
+  control. Relative paths resolve from the service working directory.
+- STORAGE_BUCKET: the bucket name, default documents. For local storage it is a
+  subdirectory under STORAGE_LOCAL_PATH; for Supabase it is the Storage bucket.
+- MAX_UPLOAD_BYTES: the largest accepted upload, default 25 MiB. Larger uploads
+  are rejected before anything is stored.
+- SCANNED_MIN_CHARS_PER_PAGE: the scanned-PDF heuristic, default 50. PDFs whose
+  average extractable characters per page fall below this are rejected as
+  scanned or unreadable rather than ingested as empty text. There is no OCR yet.
+- SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY: read only when STORAGE_BACKEND is
+  supabase. Leave them blank for local storage.
+
+OPENAI_API_KEY remains reserved in services/api/.env.example for the extraction
+phase. It is documented there only and is not read by any code yet.
+
+## Apply the migrations and seed
 
 Set DATABASE_URL in your shell so the migration and seed steps can reach your
-database, then apply the schema and insert the sample row set.
+database, then apply every schema migration in order and insert the sample row
+set. There are two migrations now: 0001_init.sql (the Phase 0 schema) and
+0002_document_metadata.sql (the Phase 1 page_count and page_offsets columns on
+documents). Apply them in sorted file order. The migrations are idempotent, so
+re-running them is safe.
 
-Apply the migration:
+Apply all migrations with a loop:
 
 Unix and macOS:
 
 ```sh
 export DATABASE_URL=postgres://postgres:postgres@localhost:5432/ibdesk
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+for f in $(ls db/migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
 ```
 
 Windows PowerShell:
 
 ```powershell
 $env:DATABASE_URL = "postgres://postgres:postgres@localhost:5432/ibdesk"
+Get-ChildItem db/migrations/*.sql | Sort-Object Name | ForEach-Object { psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f $_.FullName }
+```
+
+Or apply each file by hand, in order:
+
+Unix and macOS:
+
+```sh
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/0002_document_metadata.sql
+```
+
+Windows PowerShell:
+
+```powershell
 psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+psql $env:DATABASE_URL -v ON_ERROR_STOP=1 -f db/migrations/0002_document_metadata.sql
 ```
 
 Seed the sample document, sheet, section, and cell:
@@ -203,15 +244,35 @@ pnpm --filter @ib-desk/web dev
 ## What you should see
 
 Open http://localhost:3000 in a browser. With the service running and the
-database migrated and seeded, the page shows:
-
-- A clear "Connected" indicator, derived from the health endpoint database field.
-- The seeded sheet titled "Sample sheet".
-- Its "Overview" section label.
-- The single seeded sample cell value rendered as plain text.
+database migrated and seeded, the ingestion UI shows a left sidebar that lists
+the documents in the workspace, most recent first, with a clear empty state when
+there are none, and a main area for the selected document.
 
 If the service is down or the database is not connected, the page does not crash.
-It shows a "Not connected" indicator and degrades gracefully.
+It degrades gracefully.
+
+## Using the ingestion UI
+
+Phase 1 lets you get a document into the system as clean text. There is no
+extraction, grid, chart, or export yet; the goal is to verify that parsing
+worked.
+
+- Upload a PDF or a DOCX. Use the upload control to choose a file, or drag and
+  drop a file onto it. The browser sends a multipart POST to /v1/documents while
+  a loading state is shown during upload and parsing.
+- Paste text. Use the paste control: enter a name, paste the text into the text
+  area, and submit. The browser sends a JSON POST to /v1/documents.
+- On success the sidebar list refreshes and the new document is selected. The
+  main area shows the name, the source kind, the page count and character count,
+  a clear "Not yet extracted" status, and the parsed canonical text rendered as
+  whitespace-preserving preformatted text so you can confirm parsing worked.
+- On a rejected upload the UI shows a clear message for each case: unsupported
+  type, file too large, empty input, scanned or unreadable, and parse failed. A
+  rejected document writes no row and stores no bytes, so the store stays clean.
+
+Stored originals. With STORAGE_BACKEND=local (the default) the original bytes are
+written under STORAGE_LOCAL_PATH (default ./.local-storage), keyed by the
+document id. This directory is gitignored.
 
 ## Running the tests
 
@@ -273,6 +334,13 @@ The database-backed service tests skip locally when DATABASE_URL is unset, so
 the service test suite still runs green on a machine with no database. In CI,
 DATABASE_URL points at a pgvector Postgres, so those tests run for real and
 exercise the full round trip.
+
+The database-backed and end to end checks in CI use the local storage backend
+(STORAGE_BACKEND=local), so they need no Supabase secret. CI applies every
+migration in db/migrations in sorted order before seeding, so new migrations run
+automatically. The end to end job generates the PDF that the Playwright upload
+test consumes from the authored test fixtures, so no binary sample file is
+committed to the repository.
 
 On Unix and macOS you can also use the Makefile shortcuts (make setup, make
 migrate, make seed, make api, make web, make test, make e2e). The Makefile is

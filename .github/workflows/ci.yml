@@ -1,12 +1,16 @@
 name: CI
 
-# Phase 0 continuous integration for IB Desk.
+# Continuous integration for IB Desk.
 #
 # Runs on every push and pull request with no branch filter. Four independent
-# jobs prove the skeleton is wired: web (lint, typecheck, build), service
-# (migrate, seed, lint, typecheck, test against a real pgvector Postgres), e2e
-# (run the API and the web app, then drive them with Playwright), and docker
-# (build the service image as a deployability check).
+# jobs prove the system works: web (lint, typecheck, build), service (migrate,
+# seed, lint, typecheck, test against a real pgvector Postgres), e2e (run the
+# API and the web app, then drive them with Playwright), and docker (build the
+# service image as a deployability check).
+#
+# The hard gates use the local storage backend (STORAGE_BACKEND: local), so no
+# Supabase secret is needed. The service and e2e jobs apply every migration in
+# db/migrations in sorted order, so new migrations run automatically.
 #
 # Action major versions are pinned. The env values below are local CI values,
 # not secrets. No real credentials are committed.
@@ -52,6 +56,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ib_desk
+      STORAGE_BACKEND: local
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -84,9 +89,10 @@ jobs:
         working-directory: services/api
         run: uv sync
 
-      - name: Apply migration
+      - name: Apply migrations
         working-directory: services/api
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../db/migrations/0001_init.sql
+        shell: bash
+        run: for f in $(ls ../../db/migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
 
       - name: Seed sample data
         working-directory: services/api
@@ -116,6 +122,8 @@ jobs:
       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
       E2E_BASE_URL: http://localhost:3000
       WEB_ORIGIN: http://localhost:3000
+      STORAGE_BACKEND: local
+      E2E_PDF_FIXTURE: ${{ github.workspace }}/apps/web/e2e/sample.pdf
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -160,12 +168,18 @@ jobs:
         working-directory: services/api
         run: uv sync
 
-      - name: Apply migration
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+      - name: Apply migrations
+        shell: bash
+        run: for f in $(ls db/migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
 
       - name: Seed sample data
         working-directory: services/api
         run: uv run python -m app.seed
+
+      - name: Generate PDF fixture for Playwright
+        working-directory: services/api
+        shell: bash
+        run: uv run python -c "from tests.fixtures_gen import born_digital_pdf; open('../../apps/web/e2e/sample.pdf','wb').write(born_digital_pdf())"
 
       - name: Start API
         working-directory: services/api

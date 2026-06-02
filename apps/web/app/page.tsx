@@ -1,103 +1,78 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { HealthResponse, SheetPayload } from "@ib-desk/shared";
-import { getHealth, listDocuments, getSheet } from "@/lib/api";
+import { useCallback, useEffect, useState } from "react";
+import type { CreateDocumentResponse, DocumentListItem } from "@ib-desk/shared";
+import { listDocuments } from "@/lib/api";
+import DocumentSidebar from "@/components/DocumentSidebar";
+import IngestPanel from "@/components/IngestPanel";
+import DocumentView from "@/components/DocumentView";
 
-// Phase 0 wiring proof. This is not the product UI. It calls the three Phase 0
-// endpoints in order: health, then the document list, then the first document's
-// sheet. It renders a connectivity indicator and the single seeded sheet so we
-// can see that web to service to database to back is connected. It must never
-// crash when the service is down; in that case it shows Not connected.
+// The Phase 1 ingestion UI. A left sidebar lists the workspace documents most
+// recent first; the main area holds the intake controls (file upload with drag
+// and drop, plus a paste control) and, once a document is selected, its parsed
+// text preview. There is no extraction, grid, charts, or evidence drawer here:
+// Phase 1 only gets a document into the system as clean text and lets the user
+// verify the parse.
 export default function Home() {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [sheet, setSheet] = useState<SheetPayload | null>(null);
+  const [documents, setDocuments] = useState<DocumentListItem[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    async function load(): Promise<void> {
-      try {
-        const healthResult = await getHealth();
-        if (!active) {
-          return;
-        }
-        setHealth(healthResult);
-
-        const documents = await listDocuments();
-        if (!active) {
-          return;
-        }
-        const first = documents[0];
-        if (first && first.sheet_id) {
-          const sheetResult = await getSheet(first.sheet_id);
-          if (!active) {
-            return;
-          }
-          setSheet(sheetResult);
-        }
-      } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
+  const refresh = useCallback(async (): Promise<DocumentListItem[]> => {
+    setError(null);
+    try {
+      const items = await listDocuments();
+      setDocuments(items);
+      return items;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unknown error");
+      return [];
+    } finally {
+      setLoading(false);
     }
-
-    void load();
-
-    return () => {
-      active = false;
-    };
   }, []);
 
-  const connected = health?.database === "connected";
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const onCreated = useCallback(
+    (response: CreateDocumentResponse): void => {
+      // Refresh the list and select the new document so the user immediately
+      // sees the parsed text and can confirm the parse worked.
+      setSelectedId(response.document_id);
+      void refresh();
+    },
+    [refresh],
+  );
 
   return (
-    <main className="mx-auto max-w-2xl p-8">
-      <h1 className="text-2xl font-semibold">IB Desk</h1>
+    <main className="flex h-screen overflow-hidden bg-white text-gray-900">
+      <DocumentSidebar
+        documents={documents}
+        selectedId={selectedId}
+        loading={loading}
+        error={error}
+        onSelect={setSelectedId}
+      />
 
-      <div className="mt-4 flex items-center gap-2">
-        <span
-          className={
-            "inline-block h-3 w-3 rounded-full " +
-            (connected ? "bg-green-500" : "bg-red-500")
-          }
-          aria-hidden="true"
-        />
-        <span className={connected ? "text-green-700" : "text-red-700"}>
-          {connected ? "Connected" : "Not connected"}
-        </span>
-      </div>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <IngestPanel onCreated={onCreated} />
 
-      {loading ? <p className="mt-4 text-gray-500">Loading</p> : null}
-
-      {error ? (
-        <p className="mt-4 text-red-700">
-          Could not reach the service: {error}
-        </p>
-      ) : null}
-
-      {sheet ? (
-        <section className="mt-6">
-          <h2 className="text-xl font-medium">{sheet.sheet.title}</h2>
-          {sheet.sections.map((section) => (
-            <div key={section.id} className="mt-4">
-              <h3 className="font-medium">{section.label}</h3>
-              {section.cells.map((cell) => (
-                <p key={cell.id} className="mt-1 text-gray-800">
-                  {cell.value_norm ?? cell.value_raw ?? ""}
-                </p>
-              ))}
+        <div className="flex-1 overflow-hidden">
+          {selectedId ? (
+            <DocumentView key={selectedId} documentId={selectedId} />
+          ) : (
+            <div className="flex h-full items-center justify-center p-6 text-center text-gray-500">
+              <p>
+                Select a document from the list, or add one above, to see its
+                parsed text.
+              </p>
             </div>
-          ))}
-        </section>
-      ) : null}
+          )}
+        </div>
+      </div>
     </main>
   );
 }

@@ -90,11 +90,31 @@ class Cell(BaseModel):
     confidence: float | None
 
 
-class DocumentListItem(Document):
-    # Augments the table mirror Document with the id of the document's one sheet
-    # (one to one), so the client can navigate to the sheet using only the three
-    # Phase 0 endpoints. Null only if a document has no sheet yet.
+class DocumentListItem(BaseModel):
+    # Lightweight list item for GET /v1/documents. Omits raw_text (fetched per
+    # document via GET /v1/documents/{id}). char_count is len(raw_text);
+    # page_count is null when pages do not apply (pasted text).
+    id: str
+    name: str
+    source_kind: SourceKind
+    created_at: datetime
     sheet_id: str | None
+    sheet_status: SheetStatus | None
+    char_count: int
+    page_count: int | None
+
+
+class DocumentDetail(Document):
+    # Full document detail for GET /v1/documents/{id}, including raw_text for the
+    # parsed-text preview plus the page count and the document's sheet info.
+    page_count: int | None
+    sheet_id: str | None
+    sheet_status: SheetStatus | None
+
+
+class CreateDocumentResponse(BaseModel):
+    document_id: str
+    sheet_id: str
 
 
 class SectionWithCells(Section):

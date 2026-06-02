@@ -3,8 +3,8 @@
 The lifespan opens the asyncpg pool from settings.database_url when it is set,
 catching and logging any failure so the app still starts and the health
 endpoint can report a disconnected database. CORS is restricted to the
-configured web origin for GET requests. The three Phase 0 endpoints live in
-app.routes.
+configured web origin for GET and POST requests, so the browser can both read
+documents and submit new ones. The endpoints live in app.routes.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ app = FastAPI(title=settings.service_name, version=settings.app_version, lifespa
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.web_origin],
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 

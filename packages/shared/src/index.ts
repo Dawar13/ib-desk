@@ -96,13 +96,55 @@ export interface Cell {
   confidence: number | null;
 }
 
-// A document list item as returned by GET /v1/documents. It augments the table
-// mirror Document with the id of the document's one sheet (the sheets to
-// documents relationship is one to one), so the client can navigate from a
-// document to its sheet using only the three Phase 0 endpoints. sheet_id is null
-// only if a document has no sheet yet.
-export interface DocumentListItem extends Document {
+// A lightweight document list item as returned by GET /v1/documents. It carries
+// only the fields the sidebar needs and omits raw_text, which is fetched per
+// document via GET /v1/documents/{id}. sheet_id and sheet_status come from the
+// document's one sheet (the sheets to documents relationship is one to one).
+// char_count is the length of the canonical raw_text; page_count is null when
+// pages do not apply (pasted text).
+export interface DocumentListItem {
+  id: string;
+  name: string;
+  source_kind: SourceKind;
+  created_at: string;
   sheet_id: string | null;
+  sheet_status: SheetStatus | null;
+  char_count: number;
+  page_count: number | null;
+}
+
+// Full document detail as returned by GET /v1/documents/{id}, including the
+// canonical raw_text for the parsed-text preview, the page count, and the
+// document's sheet id and status.
+export interface DocumentDetail extends Document {
+  page_count: number | null;
+  sheet_id: string | null;
+  sheet_status: SheetStatus | null;
+}
+
+// Returned by POST /v1/documents on success.
+export interface CreateDocumentResponse {
+  document_id: string;
+  sheet_id: string;
+}
+
+// Machine-readable reason codes for a rejected ingestion. Returned in the error
+// body so the client can show a clear, specific message.
+export type IngestErrorCode =
+  | "unsupported_type"
+  | "file_too_large"
+  | "empty_input"
+  | "scanned_or_unreadable"
+  | "parse_failed";
+
+// Error body shape. FastAPI nests the payload under detail.
+export interface ApiError {
+  code: IngestErrorCode;
+  message: string;
+}
+
+export interface ApiErrorBody {
+  detail: ApiError;
 }
 
 // A section together with its cells, as returned by GET /v1/sheets/{id}.

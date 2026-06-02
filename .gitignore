@@ -48,3 +48,9 @@ coverage/
 
 # pnpm store
 .pnpm-store/
+
+# Local object storage backend (Phase 1, STORAGE_BACKEND=local)
+.local-storage/
+
+# Generated Playwright upload fixture (created in CI from fixtures_gen)
+apps/web/e2e/sample.pdf

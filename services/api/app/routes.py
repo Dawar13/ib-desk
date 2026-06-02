@@ -1,12 +1,25 @@
-"""The three Phase 0 endpoints for the IB Desk API.
+"""The IB Desk API endpoints (Phase 0 read paths plus Phase 1 ingestion).
 
-GET /health             a real SELECT 1 health check.
-GET /v1/documents       the workspace documents with their one sheet id.
-GET /v1/sheets/{id}     the full sheet payload: sheet, sections, nested cells.
+Phase 0 (unchanged):
+  GET /health                       a real SELECT 1 health check.
+  GET /v1/sheets/{id}               the full sheet payload: sheet, sections, cells.
 
-Each handler converts asyncpg records into the pydantic models in app.models
-and lets pydantic validate them. uuid columns are converted to str and the
-numeric cost_usd is converted to float so the JSON contract matches the shared
+Phase 1 (ingestion and document store):
+  POST /v1/documents                multipart file upload or pasted JSON text.
+  GET  /v1/documents                lightweight document list for the workspace.
+  GET  /v1/documents/{id}           full document detail including raw_text.
+  GET  /v1/documents/{id}/original  stream the stored original bytes.
+
+Ingestion validates the input in memory before storing anything, so neither the
+database nor object storage ever holds an empty or rejected document. Every
+rejection is a clear 4xx with a machine-readable code, never a 500. The error
+body is HTTPException(detail={"code": ..., "message": ...}) so the JSON is
+{"detail": {"code", "message"}}, matching ApiError/ApiErrorBody in the shared
+types.
+
+Each handler converts asyncpg records into the pydantic models in app.models and
+lets pydantic validate them. uuid columns are converted to str and the numeric
+cost_usd is converted to float so the JSON contract matches the shared
 TypeScript types.
 """
 
@@ -15,12 +28,15 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi.responses import Response
 
 from app import db
 from app.config import get_settings
 from app.models import (
     Cell,
+    CreateDocumentResponse,
+    DocumentDetail,
     DocumentListItem,
     HealthResponse,
     Section,
@@ -28,13 +44,55 @@ from app.models import (
     Sheet,
     SheetPayload,
 )
+from app.normalization import assemble_raw_text
+from app.parsing import ParseResult, looks_scanned, parse_docx, parse_pdf, parse_text
+from app.storage import get_storage
 
 router = APIRouter()
 
+# Content type strings used to detect and serve each source kind.
+_PDF_MIME = "application/pdf"
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+_TEXT_MIME = "text/plain; charset=utf-8"
 
-def _document_item(record: Any) -> DocumentListItem:
+# Maps a stored document's source kind to the content type used when streaming the
+# original bytes back from object storage.
+_ORIGINAL_CONTENT_TYPES: dict[str, str] = {
+    "upload_pdf": _PDF_MIME,
+    "upload_docx": _DOCX_MIME,
+    "paste": _TEXT_MIME,
+}
+
+
+def _ingest_error(status_code: int, code: str, message: str) -> HTTPException:
+    """Build the machine-readable ingestion error matching ApiError/ApiErrorBody."""
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
+def _require_pool() -> Any:
+    pool = db.get_pool()
+    if pool is None:
+        raise HTTPException(status_code=503, detail="Database is not connected")
+    return pool
+
+
+def _document_list_item(record: Any) -> DocumentListItem:
     row = dict(record)
     return DocumentListItem(
+        id=str(row["id"]),
+        name=row["name"],
+        source_kind=row["source_kind"],
+        created_at=row["created_at"],
+        sheet_id=str(row["sheet_id"]) if row["sheet_id"] is not None else None,
+        sheet_status=row["sheet_status"],
+        char_count=row["char_count"],
+        page_count=row["page_count"],
+    )
+
+
+def _document_detail(record: Any) -> DocumentDetail:
+    row = dict(record)
+    return DocumentDetail(
         id=str(row["id"]),
         workspace_id=str(row["workspace_id"]),
         name=row["name"],
@@ -44,7 +102,9 @@ def _document_item(record: Any) -> DocumentListItem:
         doc_type=row["doc_type"],
         primary_topic=row["primary_topic"],
         created_at=row["created_at"],
+        page_count=row["page_count"],
         sheet_id=str(row["sheet_id"]) if row["sheet_id"] is not None else None,
+        sheet_status=row["sheet_status"],
     )
 
 
@@ -107,12 +167,219 @@ async def health() -> HealthResponse:
     )
 
 
+def _detect_upload_kind(filename: str | None, content_type: str | None) -> str | None:
+    """Return the source_kind for an uploaded file, or None if unsupported.
+
+    Type is decided by content type and filename extension: .pdf or
+    application/pdf is a PDF; .docx or the OpenXML wordprocessing mime is a DOCX.
+    """
+    name = (filename or "").lower()
+    ctype = (content_type or "").split(";", 1)[0].strip().lower()
+    if name.endswith(".pdf") or ctype == _PDF_MIME:
+        return "upload_pdf"
+    if name.endswith(".docx") or ctype == _DOCX_MIME:
+        return "upload_docx"
+    return None
+
+
+def _parse_upload(source_kind: str, data: bytes) -> ParseResult:
+    """Parse uploaded bytes for the detected kind, mapping failures to parse_failed."""
+    try:
+        if source_kind == "upload_pdf":
+            return parse_pdf(data)
+        return parse_docx(data)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - any parser error becomes a clean 422.
+        raise _ingest_error(422, "parse_failed", f"Could not parse the document: {exc}") from exc
+
+
+async def _read_paste_body(request: Request) -> tuple[str, str]:
+    """Read and validate a JSON paste body, returning (name, text)."""
+    try:
+        body = await request.json()
+    except Exception as exc:  # noqa: BLE001 - malformed JSON is bad input, not a 500.
+        raise _ingest_error(400, "empty_input", "Request body was not valid JSON.") from exc
+    if not isinstance(body, dict):
+        raise _ingest_error(400, "empty_input", "Request body must be a JSON object.")
+    name = body.get("name")
+    text = body.get("text")
+    if not isinstance(name, str) or not isinstance(text, str):
+        raise _ingest_error(400, "empty_input", "Both name and text are required.")
+    return name, text
+
+
+async def _insert_document(
+    *,
+    document_id: str,
+    name: str,
+    source_kind: str,
+    raw_text: str,
+    byte_path: str,
+    page_count: int | None,
+    page_offsets: list[int],
+) -> str:
+    """Insert the documents and sheets rows, returning the new sheet id."""
+    pool = _require_pool()
+    settings = get_settings()
+    sheet_id = str(uuid.uuid4())
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                insert into documents
+                  (id, workspace_id, name, source_kind, raw_text, byte_path,
+                   doc_type, primary_topic, page_count, page_offsets)
+                values
+                  ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
+                """,
+                document_id,
+                settings.default_workspace_id,
+                name,
+                source_kind,
+                raw_text,
+                byte_path,
+                None,
+                None,
+                page_count,
+                page_offsets,
+            )
+            await conn.execute(
+                """
+                insert into sheets (id, document_id, title, status)
+                values ($1::uuid, $2::uuid, $3, 'idle')
+                """,
+                sheet_id,
+                document_id,
+                name,
+            )
+    return sheet_id
+
+
+@router.post("/v1/documents", response_model=CreateDocumentResponse, status_code=201)
+async def create_document(request: Request) -> CreateDocumentResponse:
+    """Ingest a document from a multipart file upload or a JSON paste body.
+
+    Validates entirely in memory before storing, so a rejected upload leaves no
+    row in the database and no object in storage. The flow is: determine input,
+    validate, parse, normalize, then store and insert.
+    """
+    settings = get_settings()
+    # Ensure the database is available before doing any parsing or storage work.
+    _require_pool()
+
+    content_type = (request.headers.get("content-type") or "").lower()
+
+    if content_type.startswith("multipart/form-data"):
+        form = await request.form()
+        upload = form.get("file")
+        if not isinstance(upload, UploadFile):
+            raise _ingest_error(400, "empty_input", "No file was provided in the upload.")
+        data = await upload.read()
+        if len(data) == 0:
+            raise _ingest_error(400, "empty_input", "The uploaded file was empty.")
+        if len(data) > settings.max_upload_bytes:
+            raise _ingest_error(
+                413,
+                "file_too_large",
+                f"The file exceeds the maximum upload size of {settings.max_upload_bytes} bytes.",
+            )
+        source_kind = _detect_upload_kind(upload.filename, upload.content_type)
+        if source_kind is None:
+            raise _ingest_error(
+                415,
+                "unsupported_type",
+                "Only PDF and DOCX files are supported.",
+            )
+        name = upload.filename or "Untitled document"
+        result = _parse_upload(source_kind, data)
+        stored_bytes = data
+        store_content_type = _PDF_MIME if source_kind == "upload_pdf" else _DOCX_MIME
+    else:
+        name, text = await _read_paste_body(request)
+        if len(text) == 0:
+            raise _ingest_error(400, "empty_input", "Pasted text was empty.")
+        if len(text.encode("utf-8")) > settings.max_upload_bytes:
+            raise _ingest_error(
+                413,
+                "file_too_large",
+                f"The text exceeds the maximum upload size of {settings.max_upload_bytes} bytes.",
+            )
+        source_kind = "paste"
+        result = parse_text(text)
+        stored_bytes = text.encode("utf-8")
+        store_content_type = _TEXT_MIME
+
+    # Reject scanned or unreadable uploads before storing anything. The per-page
+    # heuristic applies only to uploaded files; pasted text has no pages, so an
+    # empty paste is caught by the empty-text checks instead.
+    if source_kind != "paste" and looks_scanned(result, settings.scanned_min_chars_per_page):
+        raise _ingest_error(
+            422,
+            "scanned_or_unreadable",
+            "The document has no extractable text. It may be scanned or image-only.",
+        )
+
+    raw_text, page_offsets = assemble_raw_text(result.segments)
+    if raw_text == "":
+        if source_kind == "paste":
+            raise _ingest_error(400, "empty_input", "Pasted text was empty after normalization.")
+        raise _ingest_error(
+            422,
+            "scanned_or_unreadable",
+            "The document yielded no readable text after normalization.",
+        )
+
+    document_id = str(uuid.uuid4())
+    await get_storage().put(key=document_id, data=stored_bytes, content_type=store_content_type)
+
+    # Only PDFs have a meaningful page count. DOCX pagination is decided by the
+    # renderer and is not stored in the file, and pasted text has no pages, so
+    # both persist null rather than a fabricated number.
+    page_count = result.page_count if source_kind == "upload_pdf" else None
+    sheet_id = await _insert_document(
+        document_id=document_id,
+        name=name,
+        source_kind=source_kind,
+        raw_text=raw_text,
+        byte_path=document_id,
+        page_count=page_count,
+        page_offsets=page_offsets,
+    )
+
+    return CreateDocumentResponse(document_id=document_id, sheet_id=sheet_id)
+
+
 @router.get("/v1/documents", response_model=list[DocumentListItem])
 async def list_documents() -> list[DocumentListItem]:
-    pool = db.get_pool()
-    if pool is None:
-        raise HTTPException(status_code=503, detail="Database is not connected")
+    pool = _require_pool()
+    settings = get_settings()
     rows = await pool.fetch(
+        """
+        select
+            d.id,
+            d.name,
+            d.source_kind,
+            d.created_at,
+            d.page_count,
+            char_length(d.raw_text) as char_count,
+            s.id as sheet_id,
+            s.status as sheet_status
+        from documents d
+        left join sheets s on s.document_id = d.id
+        where d.workspace_id = $1::uuid
+        order by d.created_at desc
+        """,
+        settings.default_workspace_id,
+    )
+    return [_document_list_item(row) for row in rows]
+
+
+@router.get("/v1/documents/{document_id}", response_model=DocumentDetail)
+async def get_document(document_id: uuid.UUID) -> DocumentDetail:
+    # FastAPI parses the path as a UUID, so a malformed id is a 422, not a 500.
+    pool = _require_pool()
+    row = await pool.fetchrow(
         """
         select
             d.id,
@@ -124,13 +391,39 @@ async def list_documents() -> list[DocumentListItem]:
             d.doc_type,
             d.primary_topic,
             d.created_at,
-            s.id as sheet_id
+            d.page_count,
+            s.id as sheet_id,
+            s.status as sheet_status
         from documents d
         left join sheets s on s.document_id = d.id
-        order by d.created_at
-        """
+        where d.id = $1::uuid
+        """,
+        str(document_id),
     )
-    return [_document_item(row) for row in rows]
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    return _document_detail(row)
+
+
+@router.get("/v1/documents/{document_id}/original")
+async def get_document_original(document_id: uuid.UUID) -> Response:
+    # FastAPI parses the path as a UUID, so a malformed id is a 422, not a 500.
+    pool = _require_pool()
+    row = await pool.fetchrow(
+        "select source_kind, byte_path from documents where id = $1::uuid",
+        str(document_id),
+    )
+    if row is None or row["byte_path"] is None:
+        raise HTTPException(status_code=404, detail="Original document not found")
+
+    key = row["byte_path"]
+    storage = get_storage()
+    if not await storage.exists(key):
+        raise HTTPException(status_code=404, detail="Original document not found")
+
+    data = await storage.get(key)
+    content_type = _ORIGINAL_CONTENT_TYPES.get(row["source_kind"], "application/octet-stream")
+    return Response(content=data, media_type=content_type)
 
 
 @router.get("/v1/sheets/{sheet_id}", response_model=SheetPayload)
@@ -138,9 +431,7 @@ async def get_sheet(sheet_id: uuid.UUID) -> SheetPayload:
     # FastAPI parses the path as a UUID, returning 422 for a malformed id. A
     # well-formed but absent id falls through to the 404 below rather than
     # surfacing an asyncpg cast error as a 500.
-    pool = db.get_pool()
-    if pool is None:
-        raise HTTPException(status_code=503, detail="Database is not connected")
+    pool = _require_pool()
 
     sheet_id_str = str(sheet_id)
 

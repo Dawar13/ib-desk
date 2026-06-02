@@ -53,6 +53,8 @@ create table documents (
   byte_path text,                       -- object storage key for the original file
   doc_type text,                        -- discovered: company_profile | market_overview | deal | person | technology | other
   primary_topic text,                   -- discovered, free text
+  page_count int,                       -- Phase 1: parsed page count, null for pasted text
+  page_offsets jsonb,                   -- Phase 1: per-page character offsets into raw_text
   embedding vector(1536),               -- reserved for future similar-sheet search
   created_at timestamptz default now()
 );
@@ -106,6 +108,8 @@ create table extraction_events (
 ```
 
 Row level security on `documents`, `sheets`, `sections`, `cells` scoped by workspace. This matters later because the data is finance research.
+
+Phase 1 note. Migration `0002_document_metadata.sql` adds two nullable columns to `documents`: `page_count int` and `page_offsets jsonb`. They are recorded at ingestion because the information is cheap to capture then and expensive to reconstruct later. `page_count` is the parsed page count and is null for pasted text where pages do not apply. `page_offsets` holds one character offset per page into `raw_text`, so a later phase can map a grounded character span back to its source page. Both columns are nullable and are written by `POST /v1/documents`; migrations are idempotent and applied in sorted file order, so all of `db/migrations/*.sql` run on a fresh and on an existing database.
 
 ## Extraction contracts
 
@@ -176,13 +180,17 @@ Chart rule: only emit a chart hint when a section is numeric and temporal, or a 
 ## API contract
 
 ```
-POST /v1/documents            multipart file or pasted text -> { document_id, sheet_id }
-GET  /v1/documents            -> list of documents for the workspace
-GET  /v1/sheets/{id}          -> full payload: sheet, sections, cells, source spans
-POST /v1/sheets/{id}/extract  -> starts the pipeline, returns immediately
-GET  /v1/sheets/{id}/events   -> server sent events stream of extraction_events
-GET  /v1/sheets/{id}/export   -> ?format=xlsx (default) | pdf | csv, returns the styled file
+POST /v1/documents              multipart file or pasted text -> { document_id, sheet_id }
+GET  /v1/documents              -> list of documents for the workspace (most recent first)
+GET  /v1/documents/{id}         -> one document detail, including raw_text and page metadata
+GET  /v1/documents/{id}/original-> stream the stored original bytes with a type from source_kind
+GET  /v1/sheets/{id}            -> full payload: sheet, sections, cells, source spans
+POST /v1/sheets/{id}/extract    -> starts the pipeline, returns immediately
+GET  /v1/sheets/{id}/events     -> server sent events stream of extraction_events
+GET  /v1/sheets/{id}/export     -> ?format=xlsx (default) | pdf | csv, returns the styled file
 ```
+
+Phase 1 endpoints. `POST /v1/documents` validates before storing (empty input -> 400 empty_input, oversized file -> 413 file_too_large, unsupported type -> 415 unsupported_type, parse error -> 422 parse_failed, scanned or unreadable -> 422 scanned_or_unreadable) so neither the database nor object storage holds empty documents. Errors use the body shape `{ "detail": { "code", "message" } }`. `GET /v1/documents` returns the lightweight `DocumentListItem` and never includes `raw_text`. `GET /v1/documents/{id}` returns the full `DocumentDetail` including `raw_text`, `page_count`, `sheet_id`, and `sheet_status`, and 404 if not found. `GET /v1/documents/{id}/original` streams the stored bytes with a content type derived from `source_kind`: `upload_pdf` is `application/pdf`, `upload_docx` is the OpenXML wordprocessing type, and `paste` is `text/plain; charset=utf-8`; it returns 404 when the document or its `byte_path` is missing. The `{id}` path parameter is typed as a UUID, so a malformed id is a 422 rather than a 500.
 
 Progress streaming uses SSE from FastAPI, or Supabase Realtime on `extraction_events`. The UI shows the gradual reveal off these events.
 
@@ -249,9 +257,13 @@ ib-desk/
 
 ### Phase 1: Ingestion and document store
 Goal: get any document into the system as clean text.
-Deliverables: upload and paste intake, PDF and DOCX parsing to normalized text (pdfplumber or unstructured for PDF, python-docx for DOCX), raw file saved to object storage, text saved to `documents`, the sidebar document list and selection, empty and loading states.
-Interfaces introduced: POST /v1/documents, GET /v1/documents.
+Deliverables: upload and paste intake, PDF and DOCX parsing to normalized text (pdfplumber for PDF, python-docx for DOCX), raw file saved to object storage, text saved to `documents`, the sidebar document list and selection, empty and loading states.
+Interfaces introduced: POST /v1/documents, GET /v1/documents, GET /v1/documents/{id}, GET /v1/documents/{id}/original.
 Acceptance: upload a real PDF and a real DOCX, both appear in the sidebar, clean text is stored, the original is retrievable.
+
+Storage abstraction. Original bytes go through a small storage interface with two backends: a local filesystem backend and a Supabase Storage backend, selected by `STORAGE_BACKEND`. The local backend writes under `STORAGE_LOCAL_PATH` (default `./.local-storage`, gitignored) and needs no secret, so tests and CI use it and the hard gates require no Supabase credentials. The Supabase backend is for deployment and reads `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. The stored object key is the document id, recorded as `byte_path`.
+
+Deferred OCR decision. Phase 1 does not run OCR. PDFs are parsed as born-digital text. When parsing yields too little text (the average extractable characters per page is below `SCANNED_MIN_CHARS_PER_PAGE`, default 50) or normalization produces empty text, the document is treated as scanned or unreadable and `POST /v1/documents` returns 422 `scanned_or_unreadable`, writing no database row and storing no bytes. OCR for scanned PDFs is a separate hard problem and is deferred to a later phase; rejecting clearly rather than ingesting empty text keeps the store clean and avoids presenting an unreadable document as ingested.
 
 ### Phase 2: Schema-agnostic extraction engine
 Goal: prove the core works across very different documents.
@@ -280,7 +292,7 @@ Acceptance: a new user signs up, uploads any document, gets a dynamic structured
 
 - Schema stability: discovery can vary run to run. Mitigate with low temperature, a soft section taxonomy, and a stable prompt. Measure variance in evals. A model at temperature zero is near-deterministic, not perfectly guaranteed, so normalization and verification carry the burden of value consistency.
 - Chart correctness: auto-generated charts can mislead. The chart rule is conservative and the user can toggle charts off. Verify the rule on real data.
-- Parsing messy PDFs: scanned or badly laid out PDFs are their own hard problem. Decide early whether to add OCR.
+- Parsing messy PDFs: scanned or badly laid out PDFs are their own hard problem. Decided in Phase 1: no OCR yet. Born-digital PDFs are parsed directly; scanned or unreadable PDFs are rejected with a clear 422 scanned_or_unreadable rather than ingested as empty text. OCR is deferred to a later phase.
 - Cost: four passes with per-section parallelism uses more tokens. Track per-sheet cost and consider a cheaper model for verification and typing.
 - Confidentiality: this is finance research. Decide data retention, encryption, and whether documents may be sent to a third-party model at all, before any real client data is loaded.
 - Model selection: confirm the exact OpenAI models for each pass.
