@@ -1,0 +1,13 @@
+{
+  "data": {
+    "verdicts": [
+      {
+        "row_idx": 0,
+        "col_key": null,
+        "supported": true,
+        "reason": "the summary is grounded in the quoted sentence"
+      }
+    ]
+  },
+  "usage": {"prompt_tokens": 300, "completion_tokens": 40}
+}

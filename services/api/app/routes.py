@@ -25,15 +25,19 @@ TypeScript types.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from starlette.datastructures import UploadFile
 
 from app import db
 from app.config import get_settings
+from app.extraction.pipeline import run_extraction
 from app.models import (
     Cell,
     CreateDocumentResponse,
@@ -50,6 +54,10 @@ from app.parsing import ParseResult, looks_scanned, parse_docx, parse_pdf, parse
 from app.storage import get_storage
 
 router = APIRouter()
+
+# References to in-flight extraction background tasks, held so they are not
+# garbage collected before they finish.
+_EXTRACTION_TASKS: set[asyncio.Task[None]] = set()
 
 # Content type strings used to detect and serve each source kind.
 _PDF_MIME = "application/pdf"
@@ -475,3 +483,72 @@ async def get_sheet(sheet_id: uuid.UUID) -> SheetPayload:
     ]
 
     return SheetPayload(sheet=_sheet(sheet_row), sections=sections)
+
+
+@router.post("/v1/sheets/{sheet_id}/extract", status_code=202)
+async def trigger_extract(sheet_id: uuid.UUID) -> dict[str, str]:
+    """Start the extraction pipeline for a sheet and return immediately.
+
+    Sets the sheet to extracting synchronously so the response reflects it, then
+    runs the four-pass pipeline as a background task. Progress is observable on
+    the events stream and the sheet ends done or failed.
+    """
+    pool = _require_pool()
+    sheet_id_str = str(sheet_id)
+    exists = await pool.fetchrow("select id from sheets where id = $1::uuid", sheet_id_str)
+    if exists is None:
+        raise HTTPException(status_code=404, detail="Sheet not found")
+
+    await pool.execute(
+        "update sheets set status = 'extracting' where id = $1::uuid",
+        sheet_id_str,
+    )
+    settings = get_settings()
+    task: asyncio.Task[None] = asyncio.create_task(run_extraction(pool, settings, sheet_id_str))
+    _EXTRACTION_TASKS.add(task)
+    task.add_done_callback(_EXTRACTION_TASKS.discard)
+    return {"sheet_id": sheet_id_str, "status": "extracting"}
+
+
+@router.get("/v1/sheets/{sheet_id}/events")
+async def stream_events(sheet_id: uuid.UUID) -> StreamingResponse:
+    """Stream the sheet's extraction_events as server-sent events.
+
+    Polls for new events and yields each as an SSE data frame, stopping after a
+    terminal event (done or error) or a bounded number of polls.
+    """
+    pool = _require_pool()
+    sheet_id_str = str(sheet_id)
+
+    async def generate() -> AsyncIterator[str]:
+        seen: set[str] = set()
+        for _ in range(180):
+            rows = await pool.fetch(
+                """
+                select id, stage, message, payload, created_at
+                from extraction_events
+                where sheet_id = $1::uuid
+                order by created_at, id
+                """,
+                sheet_id_str,
+            )
+            terminal = False
+            for row in rows:
+                event_id = str(row["id"])
+                if event_id in seen:
+                    continue
+                seen.add(event_id)
+                frame = {
+                    "stage": row["stage"],
+                    "message": row["message"],
+                    "payload": row["payload"],
+                    "created_at": row["created_at"].isoformat(),
+                }
+                yield f"data: {json.dumps(frame)}\n\n"
+                if row["stage"] in ("done", "error"):
+                    terminal = True
+            if terminal:
+                return
+            await asyncio.sleep(1)
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

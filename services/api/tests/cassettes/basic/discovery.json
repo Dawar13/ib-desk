@@ -1,0 +1,42 @@
+{
+  "data": {
+    "doc_type": "company_profile",
+    "primary_topic": "Acme Robotics, a warehouse automation company",
+    "primary_subject": {
+      "label": "Acme Robotics",
+      "identity_fields": [
+        {
+          "key": "founded",
+          "label": "Founded",
+          "value": "2018",
+          "source": "The company was founded in 2018 in Boston.",
+          "confidence": 0.95
+        }
+      ]
+    },
+    "sections": [
+      {
+        "key": "investors_capital",
+        "label": "Investors and capital",
+        "kind": "table",
+        "render_hint": "table",
+        "category": "capital",
+        "columns": [
+          {"key": "investor", "label": "Investor"},
+          {"key": "amount", "label": "Amount"}
+        ],
+        "rationale": "the document names an investor and a round amount"
+      },
+      {
+        "key": "overview",
+        "label": "Overview",
+        "kind": "longtext",
+        "render_hint": "longtext",
+        "category": "overview",
+        "columns": null,
+        "rationale": "a short summary of what the company does"
+      }
+    ]
+  },
+  "usage": {"prompt_tokens": 1200, "completion_tokens": 300}
+}

@@ -8,7 +8,6 @@ re-extraction). Cost is recorded as telemetry only.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,7 +54,7 @@ async def write_event(
         sheet_id,
         stage,
         message,
-        json.dumps(payload) if payload is not None else None,
+        payload,
     )
 
 
@@ -102,7 +101,7 @@ async def replace_content(
                     section.kind,
                     section.render_hint,
                     section.category,
-                    json.dumps(section.columns) if section.columns is not None else None,
+                    section.columns,
                     section.sort,
                     section.confidence,
                 )
