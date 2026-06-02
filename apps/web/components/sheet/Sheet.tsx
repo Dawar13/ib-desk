@@ -6,7 +6,7 @@
 // stack opens that value's source. It is fully data-driven: give it sections and
 // it renders them by render hint, assuming nothing about which sections exist.
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { DocType, SectionWithCells } from "@ib-desk/shared";
 import EvidenceDrawer from "./EvidenceDrawer";
 import SectionCard from "./SectionCard";
@@ -28,6 +28,7 @@ export default function Sheet({
   fieldCount,
 }: SheetProps) {
   const [evidence, setEvidence] = useState<EvidenceTarget | null>(null);
+  const closeEvidence = useCallback(() => setEvidence(null), []);
 
   return (
     <div className="flex h-full flex-col">
@@ -56,7 +57,7 @@ export default function Sheet({
         )}
       </div>
       <SheetTab subject={subject} />
-      <EvidenceDrawer target={evidence} onClose={() => setEvidence(null)} />
+      <EvidenceDrawer target={evidence} onClose={closeEvidence} />
     </div>
   );
 }

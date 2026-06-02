@@ -96,6 +96,19 @@ describe("workspace states and reveal off the stream", () => {
     expect(screen.getByText("No sheet yet")).toBeInTheDocument();
   });
 
+  it("extracting before discovery shows the discovering state", () => {
+    render(
+      <SheetWorkspace
+        sheetId="s"
+        initialStatus="extracting"
+        docName="Doc"
+        docType={null}
+        primaryTopic={null}
+      />,
+    );
+    expect(screen.getByText(/Discovering structure/)).toBeInTheDocument();
+  });
+
   it("failed shows the failed state", () => {
     render(
       <SheetWorkspace
@@ -164,9 +177,12 @@ describe("workspace states and reveal off the stream", () => {
         },
       });
     });
-    // Skeletons appear for the discovered sections.
+    // One skeleton per discovered section, none ready yet.
     expect(await screen.findByText("Overview")).toBeInTheDocument();
-    expect(document.querySelector('[data-skeleton="true"]')).toBeTruthy();
+    expect(document.querySelectorAll('[data-skeleton="true"]').length).toBe(2);
+    expect(
+      document.querySelectorAll('[data-skeleton="true"][data-ready="true"]').length,
+    ).toBe(0);
 
     act(() => {
       stream.emit({
@@ -175,11 +191,13 @@ describe("workspace states and reveal off the stream", () => {
         payload: { key: "overview", label: "Overview", sort: 0, kind: "scalar", cell_count: 2 },
       });
     });
+    // Exactly the one completed section settles; the reveal is per-section.
     await waitFor(() =>
       expect(
-        document.querySelector('[data-skeleton="true"][data-ready="true"]'),
-      ).toBeTruthy(),
+        document.querySelectorAll('[data-skeleton="true"][data-ready="true"]').length,
+      ).toBe(1),
     );
+    expect(document.querySelectorAll('[data-skeleton="true"]').length).toBe(2);
 
     // done fetches the populated sheet (an async microtask), so flush it in act.
     await act(async () => {

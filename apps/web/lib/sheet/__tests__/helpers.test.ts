@@ -7,9 +7,12 @@ import { describe, expect, it } from "vitest";
 import type { SectionWithCells } from "@ib-desk/shared";
 import {
   allHintsSheet,
+  invalidBreakdownSheet,
   invalidChartSheet,
+  sparseTableSheet,
 } from "@/components/sheet/fixtures";
 import { categoryAccent } from "@/lib/sheet/category";
+import { docTypeLabel } from "@/lib/sheet/docType";
 import {
   buildChartData,
   isChartHint,
@@ -116,6 +119,12 @@ describe("chart safe fallback (three-point rule)", () => {
     expect(result.valid).toBe(false);
     expect(result.data).toBeNull();
   });
+
+  it("reports invalid for a breakdown with fewer than three slices", () => {
+    const result = buildChartData(invalidBreakdownSheet.sections[0]);
+    expect(result.valid).toBe(false);
+    expect(result.data).toBeNull();
+  });
 });
 
 describe("table shaping", () => {
@@ -134,6 +143,22 @@ describe("table shaping", () => {
       columns: null,
     };
     expect(tableColumns(noColumns)).toEqual([{ key: VALUE_COLUMN, label: "Value" }]);
+  });
+
+  it("unions declared columns with undeclared cell keys so no grounded cell is dropped", () => {
+    const keys = tableColumns(sparseTableSheet.sections[0]).map((c) => c.key);
+    expect(keys).toContain("metric");
+    expect(keys).toContain("value");
+    expect(keys).toContain("remark");
+  });
+});
+
+describe("doc type labels", () => {
+  it("labels known types and returns null when unclassified", () => {
+    expect(docTypeLabel("market_overview")).toBe("Market overview");
+    expect(docTypeLabel("company_profile")).toBe("Company profile");
+    expect(docTypeLabel(null)).toBeNull();
+    expect(docTypeLabel(undefined)).toBeNull();
   });
 });
 
@@ -191,6 +216,15 @@ describe("reveal reducer", () => {
     });
     expect(state.completed).toEqual(["a", "c"]);
     expect(state.discovered.find((s) => s.key === "a")?.label).toBe("Alpha");
+  });
+
+  it("de-duplicates repeated keys in a discovery payload", () => {
+    const state = revealReducer(INITIAL_REVEAL, {
+      stage: "discovery",
+      message: null,
+      payload: { sections: ["a", "a", "b"] },
+    });
+    expect(state.discovered.map((s) => s.key)).toEqual(["a", "b"]);
   });
 
   it("ignores pass-level frames, degrading to a coarser reveal", () => {

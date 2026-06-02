@@ -55,11 +55,17 @@ export default function SectionChart({
 }: SectionChartProps) {
   const accent = categoryAccent(section.category);
 
-  // recharts hands the datum to onClick; the datum carries the originating cell.
+  // recharts hands the datum to onClick. Bars and pie slices receive the datum
+  // (which carries the originating cell) at the top level; a line's active dot
+  // receives it nested under payload. Read both shapes so a click on any chart
+  // mark opens its evidence.
   const open = (entry: unknown): void => {
-    const point = entry as Partial<ChartPoint> | null;
-    if (point && point.cell) {
-      onEvidence({ cell: point.cell, section });
+    const node = entry as
+      | (Partial<ChartPoint> & { payload?: Partial<ChartPoint> })
+      | null;
+    const cell = node?.cell ?? node?.payload?.cell;
+    if (cell) {
+      onEvidence({ cell, section });
     }
   };
 

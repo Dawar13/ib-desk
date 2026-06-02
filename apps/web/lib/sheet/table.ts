@@ -13,19 +13,31 @@ import type { Cell, ColumnDef, SectionWithCells } from "@ib-desk/shared";
 export const VALUE_COLUMN = "__value__";
 
 export function tableColumns(section: SectionWithCells): ColumnDef[] {
-  if (section.columns && section.columns.length > 0) {
-    return section.columns;
-  }
-  const seen = new Map<string, string>();
+  // Start from declared columns, then union in every column key actually present
+  // on a cell, plus a value column for any cell that carries no column key. This
+  // guarantees no grounded cell is silently dropped because its key was not
+  // declared, while preserving the declared column order first.
+  const declared = section.columns ?? [];
+  const columns: ColumnDef[] = [...declared];
+  const seen = new Set<string>(declared.map((column) => column.key));
+  let hasValueless = false;
   for (const cell of section.cells) {
-    if (cell.col_key !== null && cell.col_key.trim() !== "" && !seen.has(cell.col_key)) {
-      seen.set(cell.col_key, cell.col_key);
+    if (cell.col_key !== null && cell.col_key.trim() !== "") {
+      if (!seen.has(cell.col_key)) {
+        seen.add(cell.col_key);
+        columns.push({ key: cell.col_key, label: cell.col_key });
+      }
+    } else {
+      hasValueless = true;
     }
   }
-  if (seen.size === 0) {
+  if (hasValueless && !seen.has(VALUE_COLUMN)) {
+    columns.push({ key: VALUE_COLUMN, label: "Value" });
+  }
+  if (columns.length === 0) {
     return [{ key: VALUE_COLUMN, label: "Value" }];
   }
-  return Array.from(seen.entries()).map(([key, label]) => ({ key, label }));
+  return columns;
 }
 
 export interface TableRow {

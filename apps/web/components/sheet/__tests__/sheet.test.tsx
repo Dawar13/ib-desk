@@ -10,8 +10,11 @@ import Sheet from "@/components/sheet/Sheet";
 import {
   allHintsSheet,
   confidenceSheet,
+  emptySheet,
+  invalidBreakdownSheet,
   invalidChartSheet,
   marketSheet,
+  sparseTableSheet,
 } from "@/components/sheet/fixtures";
 
 // recharts needs layout measurement jsdom lacks; the stub renders the chart
@@ -59,6 +62,35 @@ describe("schema-driven rendering (headline)", () => {
       "regional_breakdown",
     );
     expect(card("longtext").getAttribute("data-section-key")).toBe("regulation");
+
+    // The primary subject and the doc-type classification chip render.
+    expect(
+      screen.getByRole("heading", { name: "Mid-market freight software" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Market overview")).toBeInTheDocument();
+  });
+
+  it("renders a section by its render hint regardless of its business meaning", () => {
+    // A section whose key and label read like a chip list, but the engine typed
+    // it as a table, must render as a table. This proves dispatch is on
+    // render_hint alone, never on what the section means.
+    const investors = allHintsSheet.sections.find((s) => s.key === "investors");
+    if (!investors) {
+      throw new Error("fixture missing the investors section");
+    }
+    const asTable = { ...investors, render_hint: "table" as const };
+    render(
+      <Sheet
+        subject="X"
+        docType={null}
+        sections={[asTable]}
+        fieldCount={asTable.cells.length}
+      />,
+    );
+    const node = document.querySelector('[data-section-key="investors"]') as HTMLElement;
+    expect(node.getAttribute("data-render-hint")).toBe("table");
+    expect(within(node).getByRole("table")).toBeInTheDocument();
+    expect(within(node).getByText("Harbor Lane Ventures")).toBeInTheDocument();
   });
 });
 
@@ -102,8 +134,41 @@ describe("confidence markers", () => {
       "unknown",
     );
 
-    expect(document.querySelector('[data-legend-band="high"]')).toBeTruthy();
-    expect(document.querySelector('[data-legend-band="unknown"]')).toBeTruthy();
+    for (const band of ["high", "medium", "low", "unknown"]) {
+      expect(document.querySelector(`[data-legend-band="${band}"]`)).toBeTruthy();
+    }
+
+    // The dot color on a value matches its legend entry, so the legend cannot
+    // drift from the markers.
+    const valueDot = screen
+      .getByRole("button", { name: /Alpha/ })
+      .querySelector('[data-confidence-band="high"]') as HTMLElement;
+    const legendDot = document.querySelector(
+      '[data-legend-band="high"] span',
+    ) as HTMLElement;
+    expect(valueDot.style.backgroundColor).not.toBe("");
+    expect(valueDot.style.backgroundColor).toBe(legendDot.style.backgroundColor);
+  });
+});
+
+describe("no fabrication in the grid", () => {
+  it("shows a neutral placeholder for a missing cell and never drops a grounded cell", () => {
+    renderSheet(sparseTableSheet);
+    const grid = card("table");
+
+    // A grounded cell whose column key was not declared still renders.
+    expect(within(grid).getByText("Strong demand (sample)")).toBeInTheDocument();
+    // The row missing a value shows the neutral placeholder, not a guess.
+    expect(within(grid).getAllByText("-").length).toBeGreaterThan(0);
+  });
+});
+
+describe("empty sheet", () => {
+  it("renders a clear no-sections message", () => {
+    renderSheet(emptySheet);
+    expect(
+      screen.getByText(/produced no grounded sections/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -146,6 +211,15 @@ describe("charts and safe fallback", () => {
   it("falls back to the table when the data cannot form a chart, without crashing", () => {
     renderSheet(invalidChartSheet);
     const sparse = card("timeseries_bar");
+
+    expect(within(sparse).queryByRole("button", { name: "Chart" })).toBeNull();
+    expect(sparse.querySelector('[data-chart-fallback="true"]')).toBeTruthy();
+    expect(within(sparse).getByRole("table")).toBeInTheDocument();
+  });
+
+  it("falls back to the table for a breakdown with too few slices", () => {
+    renderSheet(invalidBreakdownSheet);
+    const sparse = card("breakdown_pie");
 
     expect(within(sparse).queryByRole("button", { name: "Chart" })).toBeNull();
     expect(sparse.querySelector('[data-chart-fallback="true"]')).toBeTruthy();

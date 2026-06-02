@@ -7,7 +7,7 @@
 // the sentence inside the full original document is a later phase; here the
 // stored sentence is shown directly.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { cx } from "@/lib/cx";
 import { confidenceStyle } from "@/lib/sheet/confidence";
 import { cellDisplayValue, cellFieldLabel } from "@/lib/sheet/value";
@@ -20,18 +20,29 @@ interface EvidenceDrawerProps {
 
 export default function EvidenceDrawer({ target, onClose }: EvidenceDrawerProps) {
   const open = target !== null;
+  const dialogRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (!open) {
       return;
     }
+    // Move focus into the modal dialog on open and restore it to the trigger on
+    // close, so keyboard users are not left behind the overlay.
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+
     function onKey(event: KeyboardEvent): void {
       if (event.key === "Escape") {
         onClose();
       }
     }
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
   }, [open, onClose]);
 
   return (
@@ -45,10 +56,12 @@ export default function EvidenceDrawer({ target, onClose }: EvidenceDrawerProps)
         )}
       />
       <aside
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="Source evidence"
         aria-hidden={!open}
+        tabIndex={-1}
         className={cx(
           "fixed right-0 top-0 z-40 flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-2xl transition-transform duration-300",
           open ? "translate-x-0" : "translate-x-full",
@@ -135,7 +148,9 @@ function EvidenceContent({
                 style={{ backgroundColor: style.color }}
               />
               {style.label}
-              {cell.confidence !== null ? ` (${cell.confidence.toFixed(2)})` : ""}
+              {cell.confidence !== null && Number.isFinite(cell.confidence)
+                ? ` (${cell.confidence.toFixed(2)})`
+                : ""}
             </dd>
           </div>
 

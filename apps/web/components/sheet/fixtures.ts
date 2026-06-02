@@ -250,8 +250,8 @@ export const marketSheet: SheetPayload = payload(
       ],
     }),
     section({
-      key: "market_overview",
-      label: "Market overview",
+      key: "market_summary",
+      label: "Market summary",
       kind: "scalar",
       render_hint: "keyvalue",
       category: "Market",
@@ -309,6 +309,57 @@ export const invalidChartSheet: SheetPayload = payload([
     cells: [
       cell({ row_idx: 0, col_key: "arr", period: "2022", value_raw: "$9M", value_norm: "9000000", confidence: 0.6 }),
       cell({ row_idx: 1, col_key: "arr", period: "2023", value_raw: "$18M", value_norm: "18000000", confidence: 0.6 }),
+    ],
+  }),
+]);
+
+// A breakdown-hinted section with only two slices, for the breakdown safe-fallback gate.
+export const invalidBreakdownSheet: SheetPayload = payload([
+  section({
+    key: "thin_split",
+    label: "Thin split",
+    kind: "table",
+    render_hint: "breakdown_pie",
+    category: "Financials",
+    columns: SHARE_COLUMNS,
+    cells: [
+      cell({ row_idx: 0, col_key: "region", value_raw: "EMEA", value_norm: "EMEA", confidence: 0.7 }),
+      cell({ row_idx: 0, col_key: "share", value_raw: "60%", value_norm: "60", unit: "percent", confidence: 0.7 }),
+      cell({ row_idx: 1, col_key: "region", value_raw: "Americas", value_norm: "Americas", confidence: 0.7 }),
+      cell({ row_idx: 1, col_key: "share", value_raw: "40%", value_norm: "40", unit: "percent", confidence: 0.7 }),
+    ],
+  }),
+]);
+
+// A table with a row missing one column's cell and a cell whose column key was
+// not declared. Guards the no-fabrication placeholder and the column-union rule:
+// a missing cell shows the neutral placeholder, and a grounded cell with an
+// undeclared key is still rendered rather than silently dropped.
+export const sparseTableSheet: SheetPayload = payload([
+  section({
+    key: "metrics",
+    label: "Metrics",
+    kind: "table",
+    render_hint: "table",
+    category: "Financials",
+    columns: [
+      { key: "metric", label: "Metric" },
+      { key: "value", label: "Value" },
+    ],
+    cells: [
+      cell({ row_idx: 0, col_key: "metric", value_raw: "Revenue", value_norm: "Revenue", confidence: 0.8 }),
+      cell({ row_idx: 0, col_key: "value", value_raw: "$10M", value_norm: "10000000", confidence: 0.8 }),
+      // Row 1 has no "value" cell: the value column shows the neutral placeholder.
+      cell({ row_idx: 1, col_key: "metric", value_raw: "EBITDA", value_norm: "EBITDA", confidence: 0.7 }),
+      // Row 2 carries a cell whose column key was not declared: it must still show.
+      cell({ row_idx: 2, col_key: "metric", value_raw: "Note", value_norm: "Note", confidence: 0.7 }),
+      cell({
+        row_idx: 2,
+        col_key: "remark",
+        value_raw: "Strong demand (sample)",
+        value_norm: "Strong demand (sample)",
+        confidence: 0.6,
+      }),
     ],
   }),
 ]);

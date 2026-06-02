@@ -14,7 +14,9 @@
 /* Respect users who prefer reduced motion: the gradual-reveal fade is decorative,
    so disable it rather than animate against their preference. */
 @media (prefers-reduced-motion: reduce) {
-  .animate-sheet-fade-in {
+  .animate-sheet-fade-in,
+  .animate-pulse,
+  .animate-spin {
     animation: none !important;
   }
 }

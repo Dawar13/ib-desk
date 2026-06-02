@@ -75,9 +75,17 @@ export function revealReducer(
   // Discovery complete carries the doc classification and the ordered section
   // keys; discovery started carries no payload and is ignored.
   if (frame.stage === "discovery" && payload && Array.isArray(payload.sections)) {
+    const seenKeys = new Set<string>();
     const discovered: RevealSkeleton[] = payload.sections
       .map((entry) => asString(entry))
       .filter((key): key is string => key !== null)
+      .filter((key) => {
+        if (seenKeys.has(key)) {
+          return false;
+        }
+        seenKeys.add(key);
+        return true;
+      })
       .map((key) => ({ key, label: humanizeKey(key) }));
     return {
       docType: asDocType(payload.doc_type) ?? state.docType,
