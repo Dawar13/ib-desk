@@ -138,7 +138,31 @@ def test_grounding_and_verification(monkeypatch: pytest.MonkeyPatch) -> None:
                     "select stage from extraction_events where sheet_id = $1::uuid", sheet_id
                 )
             }
-            assert {"discovery", "extraction", "verification", "typing", "done"} <= stages
+            assert {
+                "discovery",
+                "extraction",
+                "verification",
+                "typing",
+                "section",
+                "done",
+            } <= stages
+
+            # A per-section completion event is written for each section that
+            # finishes extraction. It drives the Phase 3 gradual reveal and carries
+            # the section key, label, sort, kind, and grounded cell count.
+            section_events = await pool.fetch(
+                "select payload from extraction_events "
+                "where sheet_id = $1::uuid and stage = 'section'",
+                sheet_id,
+            )
+            assert {row["payload"]["key"] for row in section_events} == {
+                "investors_capital",
+                "overview",
+            }
+            for row in section_events:
+                payload = row["payload"]
+                assert {"key", "label", "sort", "kind", "cell_count"} <= set(payload.keys())
+                assert isinstance(payload["cell_count"], int)
 
             await _cleanup(pool, sheet_id, doc_id)
         finally:
@@ -193,6 +217,14 @@ def test_error_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
                 sheet_id,
             )
             assert any("investors_capital" in (row["message"] or "") for row in errors)
+            # The failing section emits no per-section completion event; only the
+            # section that finished extraction does.
+            section_events = await pool.fetch(
+                "select payload from extraction_events "
+                "where sheet_id = $1::uuid and stage = 'section'",
+                sheet_id,
+            )
+            assert {row["payload"]["key"] for row in section_events} == {"overview"}
             sheet = await pool.fetchrow("select status from sheets where id = $1::uuid", sheet_id)
             assert sheet["status"] == "done"
 

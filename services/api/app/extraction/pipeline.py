@@ -221,6 +221,24 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
                         if section.columns
                         else None
                     )
+                    # Per-section completion event. Emitted as each section finishes
+                    # extraction (after grounding, before verification and typing) so
+                    # the UI can reveal the sheet section by section off the stream.
+                    # The render_hint here is the discovery proposal; the final hint
+                    # is settled in the typing pass and read from the sheet payload.
+                    await write_event(
+                        pool,
+                        sheet_id,
+                        "section",
+                        f"section {section.label} extracted",
+                        {
+                            "key": section.key,
+                            "label": section.label,
+                            "sort": index,
+                            "kind": section.kind,
+                            "cell_count": len(cells),
+                        },
+                    )
                     return ResolvedSection(
                         key=section.key,
                         label=section.label,
