@@ -19,6 +19,7 @@ import type {
   CreateDocumentResponse,
   IngestErrorCode,
   ApiErrorBody,
+  SheetPayload,
 } from "@ib-desk/shared";
 
 export const API_BASE =
@@ -105,4 +106,38 @@ export async function createDocumentPaste(
 
 export function originalUrl(id: string): string {
   return API_BASE + "/v1/documents/" + id + "/original";
+}
+
+// Fetch the populated sheet payload (sheet, sections, nested cells) for a sheet.
+// This is the canonical read path; the web app calls it once a done event arrives
+// on the extraction events stream.
+export async function getSheet(id: string): Promise<SheetPayload> {
+  const res = await fetch(API_BASE + "/v1/sheets/" + id, { cache: "no-store" });
+  if (!res.ok) {
+    await throwFromResponse(res);
+  }
+  return (await res.json()) as SheetPayload;
+}
+
+// Trigger the four-pass extraction pipeline for a sheet. The service sets the
+// sheet to extracting and runs the pipeline as a background task, returning 202
+// with the sheet id and the new status. Progress is observed on the events
+// stream (see eventsUrl) rather than in this response.
+export async function triggerExtract(
+  sheetId: string,
+): Promise<{ sheet_id: string; status: string }> {
+  const res = await fetch(API_BASE + "/v1/sheets/" + sheetId + "/extract", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    await throwFromResponse(res);
+  }
+  return (await res.json()) as { sheet_id: string; status: string };
+}
+
+// The server-sent events URL for a sheet's extraction progress. Returned as a
+// plain string so the caller can hand it directly to the browser EventSource,
+// which performs its own GET rather than going through fetch.
+export function eventsUrl(sheetId: string): string {
+  return API_BASE + "/v1/sheets/" + sheetId + "/events";
 }

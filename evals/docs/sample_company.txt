@@ -1,0 +1,19 @@
+SAMPLE DATA - This is a fictional company profile written for the IB Desk evaluation harness. It is not real research. The company, people, investors, and figures named below are invented for testing and must never be presented as real.
+
+Northwind Cargo Systems: Company Profile (Sample)
+
+Northwind Cargo Systems is a fictional logistics software company used here as sample data. Northwind was founded in 2016 in Rotterdam, and it builds a cloud platform that helps mid-market freight forwarders quote, book, and track ocean and air shipments in one place. The company describes itself as a system of record for forwarders that have outgrown spreadsheets but cannot justify a heavyweight enterprise suite.
+
+The founders, Lena Vermeer and Tomas Aalto, started Northwind after a decade working in freight operations, where they saw the same manual quoting and rekeying problems at every employer. Their thesis was simple: a forwarder should be able to turn a customer request into a priced, bookable shipment in minutes rather than hours.
+
+In 2023 Northwind closed a 24 million dollar Series B led by Harbor Lane Ventures, with participation from earlier backer Polder Capital. The round valued the company at 180 million dollars. Northwind had previously raised a 6 million dollar Series A from Polder Capital in 2020.
+
+The business has grown quickly. Northwind reported annual recurring revenue of 18 million dollars at the end of 2023, up from 9 million dollars a year earlier. Net revenue retention was 124 percent over the same period, and gross margin held at 78 percent. The company served 340 forwarder customers across 19 countries as of the end of 2023.
+
+The market for freight forwarding software is large and fragmented. Northwind estimates the addressable market for mid-market forwarder software at 12 billion dollars globally, and notes that most forwarders in this segment still run their core operations on email and spreadsheets.
+
+Why now: the people who ran freight desks for twenty years are retiring, and the operators replacing them expect software that feels like the consumer tools they already use. At the same time, ocean and air rates have become far more volatile, so the ability to requote quickly is now a competitive advantage rather than a convenience. Northwind argues that this combination of a generational handover and rate volatility is pulling mid-market forwarders toward modern software faster than at any point in the past decade.
+
+Northwind employs 210 people, with engineering concentrated in Rotterdam and a commercial team in Singapore. The company says it is not currently raising and expects to reach profitability on its existing capital.
+
+End of sample document.

@@ -17,7 +17,7 @@ help:
 	@echo "  web           Run the Next.js dev server on port 3000"
 	@echo "  api           Run the FastAPI service with uvicorn on port 8000"
 	@echo "  dev           Run the service and the web app together"
-	@echo "  migrate       Apply db/migrations/0001_init.sql with psql using DATABASE_URL"
+	@echo "  migrate       Apply all db/migrations in order with psql using DATABASE_URL"
 	@echo "  seed          Insert the sample seed row set via the service CLI"
 	@echo "  test          Run web checks and service pytest"
 	@echo "  e2e           Run the Playwright end to end tests"
@@ -37,7 +37,7 @@ dev:
 	$(MAKE) -j2 api web
 
 migrate:
-	psql "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/migrations/0001_init.sql
+	for f in $$(ls db/migrations/*.sql | sort); do psql "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f "$$f"; done
 
 seed:
 	cd services/api && uv run python -m app.seed

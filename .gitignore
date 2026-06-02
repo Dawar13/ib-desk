@@ -54,3 +54,8 @@ coverage/
 
 # Generated Playwright upload fixture (created in CI from fixtures_gen)
 apps/web/e2e/sample.pdf
+
+# Eval harness (Phase 2). Ignore the generated report and any local virtualenv.
+# Do NOT ignore evals/docs (the sample documents) or the committed cassettes.
+evals/report.json
+evals/.venv/

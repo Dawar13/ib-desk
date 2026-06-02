@@ -9,15 +9,24 @@ name: CI
 # service image as a deployability check).
 #
 # The hard gates use the local storage backend (STORAGE_BACKEND: local), so no
-# Supabase secret is needed. The service and e2e jobs apply every migration in
-# db/migrations in sorted order, so new migrations run automatically.
+# Supabase secret is needed. They also run the extraction engine in replay mode
+# (LLM_MODE: replay), so the cassette logic tests need no OpenAI key. The service
+# and e2e jobs apply every migration in db/migrations in sorted order, so new
+# migrations run automatically.
+#
+# A fifth job, live-eval, is secret-gated and manual only. It runs the label-free
+# evaluation harness against live OpenAI models. It triggers on workflow_dispatch
+# alone, never on push or pull_request, and is skipped cleanly when the
+# OPENAI_API_KEY secret is absent, so forks and key-less repositories do not fail.
 #
 # Action major versions are pinned. The env values below are local CI values,
-# not secrets. No real credentials are committed.
+# not secrets. No real credentials are committed. The only secret used anywhere
+# in this workflow is OPENAI_API_KEY, used solely by the manual live-eval job.
 
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   web:
@@ -57,6 +66,10 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ib_desk
       STORAGE_BACKEND: local
+      # Run the extraction engine in replay mode. The cassette logic tests are
+      # backed by recorded cassettes and need no OpenAI key. This is also the
+      # default; it is set here to keep the secret-free property explicit.
+      LLM_MODE: replay
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -246,3 +259,61 @@ jobs:
 
       - name: Build service image
         run: docker build -t ib-desk-api services/api
+
+  live-eval:
+    name: Live eval (manual, secret-gated)
+    runs-on: ubuntu-latest
+    # Manual only. This job is defined under workflow_dispatch and is skipped on
+    # push and pull_request. The if guard skips it cleanly when the OPENAI_API_KEY
+    # secret is absent, so forks and key-less repositories do not fail. Secrets
+    # are not exposed to fork pull requests, and workflow_dispatch cannot be run
+    # from a fork, so the live key never runs in an untrusted context.
+    if: ${{ github.event_name == 'workflow_dispatch' && secrets.OPENAI_API_KEY != '' }}
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ib_desk
+      STORAGE_BACKEND: local
+      LLM_MODE: live
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL_DISCOVERY: gpt-5.5
+      OPENAI_MODEL_EXTRACTION: gpt-5.5
+      OPENAI_MODEL_VERIFICATION: gpt-5.5
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ib_desk
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ib_desk"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: "0.11.7"
+
+      - name: Sync dependencies
+        working-directory: services/api
+        run: uv sync
+
+      - name: Apply migrations
+        working-directory: services/api
+        shell: bash
+        run: for f in $(ls ../../db/migrations/*.sql | sort); do psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f"; done
+
+      - name: Run label-free eval harness
+        working-directory: services/api
+        run: uv run python ../../evals/run_eval.py

@@ -29,6 +29,8 @@ Exhaustiveness including qualitative insight. The stance: the discovery pass mus
 
 Grounding and no fabrication. The stance: every value is tied to a verbatim source sentence and a character span, a verification pass checks that the sentence truly supports the value, and anything that fails is dropped or flagged. Omission is always preferable to a guess.
 
+Phase 2 note. The character span is service-computed, not model-reported. The model returns a value and its verbatim supporting sentence only; the grounding step locates that sentence in the source text and computes the character offsets, and `value_norm` is computed deterministically by the service. A value whose supporting sentence cannot be located is ungrounded and is dropped. This is the cardinal anti-fabrication mechanism and it is unchanged. Separately, the labeled golden-set eval was descoped by the owner in this build and replaced by a label-free eval (fabrication rate, grounding resolution, value-level stability) plus the secret-free cassette logic gates. The descope does not weaken the grounding rule or the no-fabrication rule. See BUILD_PLAN.md, the Evaluation section, for detail.
+
 ## 5. Architecture and interfaces
 
 The full architecture, the generic data model, the discovery and extraction JSON contracts, the API routes, and the render-hint enum live in `BUILD_PLAN.md`. In short: a Next.js web app, a FastAPI service, Postgres with pgvector, OpenAI models, and an xlsxwriter export. The extraction runs as four passes: discovery, extraction, verification, and render typing. The store is generic: documents, sheets, sections, and cells, where one row in cells is one grounded fact.

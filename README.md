@@ -36,7 +36,7 @@ ib-desk/
   services/api/      # FastAPI service (async, pydantic, asyncpg)
   packages/shared/   # shared TypeScript types for the sheet payload
   db/migrations/     # SQL migrations; 0001_init.sql is the full Phase 0 schema
-  evals/             # golden documents and the eval harness (arrive in Phase 2)
+  evals/             # label-free eval harness and fictional sample documents (Phase 2)
   CLAUDE.md          # principles and conventions
   BUILD_PLAN.md      # architecture, data model, API contract, phase roadmap
 ```

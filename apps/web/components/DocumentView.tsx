@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import type { DocumentDetail } from "@ib-desk/shared";
 import { getDocument, originalUrl } from "@/lib/api";
 import { sourceKindLabel } from "@/lib/labels";
+import ExtractionPanel from "@/components/ExtractionPanel";
 
 // The main panel for the selected document. It fetches the full DocumentDetail
 // (including raw_text) for the given id and shows the name, source kind, page
-// count and character count, a clear not-yet-extracted status, and the parsed
-// raw_text rendered as whitespace-preserving preformatted text so the user can
-// verify parsing worked. There is no grid, no charts, and no evidence drawer in
-// Phase 1.
+// count and character count, the parsed raw_text rendered as
+// whitespace-preserving preformatted text so the user can verify parsing worked,
+// and a debug-only extraction panel that triggers the engine and renders its
+// result plainly. There is no grid, no charts, and no evidence drawer here.
 
 interface DocumentViewProps {
   documentId: string;
@@ -110,18 +111,25 @@ export default function DocumentView({ documentId }: DocumentViewProps) {
             </dd>
           </div>
         </dl>
-        <p className="mt-3 inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800">
-          Not yet extracted
-        </p>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-6 py-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600">
-          Parsed text
-        </h2>
-        <pre className="mt-2 whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-4 font-mono text-sm leading-relaxed text-gray-800">
-          {detail.raw_text}
-        </pre>
+      <div className="flex-1 overflow-y-auto">
+        <div className="px-6 py-4">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600">
+            Parsed text
+          </h2>
+          <pre className="mt-2 whitespace-pre-wrap break-words rounded-md border border-gray-200 bg-gray-50 p-4 font-mono text-sm leading-relaxed text-gray-800">
+            {detail.raw_text}
+          </pre>
+        </div>
+
+        {detail.sheet_id !== null ? (
+          <ExtractionPanel
+            key={detail.sheet_id}
+            sheetId={detail.sheet_id}
+            initialStatus={detail.sheet_status ?? "idle"}
+          />
+        ) : null}
       </div>
     </article>
   );

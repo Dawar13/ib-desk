@@ -160,6 +160,8 @@ Pass 2, extraction, run once per section in parallel. Input: `raw_text` plus one
 }
 ```
 
+Phase 2 note on offsets. The character offsets `char_start` and `char_end` are service-computed, not model-reported. The model returns a value and a verbatim supporting sentence only; it never reports offsets. The grounding step in the service locates that supporting sentence inside `documents.raw_text` and computes `char_start` and `char_end` from where it actually occurs. A value whose supporting sentence cannot be located in the source is ungrounded and is dropped. The example offsets shown in the extraction contract above are illustrative of the stored shape; in the running engine those numbers come from the service, not from the model. The `value_norm` field is likewise computed deterministically by the service, not by the model. This is the cardinal anti-fabrication mechanism and it is unchanged in this build: a value with no locatable source sentence does not appear.
+
 Pass 3, verification. For each cell, confirm the `source_snippet` actually supports `value_raw`. Drop or flag cells that fail. Can be a cheaper model or a rule plus model hybrid. Records a `fabrication_flag` where grounding is weak.
 
 Pass 4, render typing. Assign each section a `render_hint`:
@@ -226,15 +228,17 @@ Server-side with xlsxwriter:
 
 ## Evaluation
 
-Build a golden set of at least eight documents spanning different `doc_type` values: company, market overview, deal, person, technology, and two messy or ambiguous ones. Metrics:
+Phase 2 scope note. The original plan called for a hand-labeled golden set of at least eight documents scored on field precision and recall. In this build the project owner deliberately descoped the labeled golden set. It is replaced by a label-free eval over sample documents plus the secret-free cassette logic gates that run in CI on every push and pull request. The cardinal anti-fabrication mechanism, grounding-computed offsets with ungrounded values dropped, is unchanged by this descope. The eval measures behavior, not agreement with hand labels.
 
-- Schema sensibleness: human rating of whether the discovered sections fit the document.
-- Field precision and recall against hand-labeled values.
-- Grounding faithfulness: share of values whose snippet truly supports them.
-- Fabrication rate: share of values with no real support. Target near zero.
-- Schema stability: variance of the discovered schema across repeated runs of the same document.
+The label-free eval, run by `evals/run_eval.py`, measures:
 
-Run the evals in CI. Any prompt change must pass the bar before merge.
+- Fabrication rate: share of emitted values with no locatable supporting source sentence. Target near zero. This is the hard threshold; the harness exits nonzero when it is exceeded.
+- Grounding resolution: share of returned values whose service-computed char span resolves back into `documents.raw_text`.
+- Value-level stability: across repeated runs of the same document, the same underlying fact renders to the same `value_norm`. Section ordering and visual position may vary; the data and the normalized values may not.
+
+The original labeled metrics (schema sensibleness, field precision and recall against hand labels) are deferred with the labeled golden set and are not part of this build.
+
+How the gates run in CI. The secret-free cassette logic tests run in the service job in replay mode (LLM_MODE replay) against the pgvector Postgres service with no OpenAI key, on every push and pull request. They are the always-on gate. The label-free eval over live models runs only in the manual, secret-gated `live-eval` job (workflow_dispatch only), which is skipped cleanly when the OpenAI key is absent so forks and key-less repositories never fail. That job passes when `evals/run_eval.py` exits zero, that is, when the fabrication rate is under threshold. Any prompt change should be checked against this bar before merge.
 
 ## Phases
 
@@ -267,9 +271,9 @@ Deferred OCR decision. Phase 1 does not run OCR. PDFs are parsed as born-digital
 
 ### Phase 2: Schema-agnostic extraction engine
 Goal: prove the core works across very different documents.
-Deliverables: the four-pass pipeline, the discovery and extraction JSON contracts, persistence into `sections` and `cells`, per-section parallelism with backoff and error isolation, cost tracking, the SSE events stream, and the eval harness with the golden set.
-Interfaces introduced: POST /v1/sheets/{id}/extract, GET /v1/sheets/{id}/events, the discovery and extraction schemas, the RenderHint enum.
-Acceptance: feed three structurally different documents and get three sensible, distinct schemas with grounded data. Eval metrics meet the bar. Fabrication rate near zero.
+Deliverables: the four-pass pipeline, the discovery and extraction JSON contracts, persistence into `sections` and `cells`, per-section parallelism with backoff and error isolation, cost tracking, the SSE events stream, and the eval harness. The model never reports offsets; grounding computes `char_start` and `char_end` by locating the supporting sentence in `raw_text`, and `value_norm` is computed deterministically by the service. Ungrounded values are dropped. This phase ships a deliberately plain, debug-only rendering; the visual grid, charts, evidence drawer, and styled export are later phases. The labeled golden set is descoped by the owner and replaced by a label-free eval (fabrication rate, grounding resolution, value-level stability) plus the secret-free cassette logic gates.
+Interfaces introduced: POST /v1/sheets/{id}/extract, GET /v1/sheets/{id}/events, GET /v1/sheets/{id} (populated payload once done), the discovery and extraction schemas, the RenderHint enum.
+Acceptance: feed three structurally different documents and get three sensible, distinct schemas with grounded data. The label-free eval meets the bar. Fabrication rate near zero. The secret-free cassette logic gates pass in replay mode with no OpenAI key.
 
 ### Phase 3: Dynamic spreadsheet UI
 Goal: render any discovered schema beautifully and dynamically.
