@@ -28,7 +28,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     if settings.database_url:
         try:
-            await db.open_pool(settings.database_url)
+            await db.open_pool(
+                settings.database_url,
+                min_size=settings.db_pool_min_size,
+                max_size=settings.db_pool_max_size,
+            )
         except Exception as exc:
             logger.warning(
                 "Could not open database pool, continuing with database disconnected: %s",

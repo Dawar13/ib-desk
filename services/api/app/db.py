@@ -31,10 +31,16 @@ async def _init_connection(conn: asyncpg.Connection) -> None:
     )
 
 
-async def open_pool(dsn: str) -> None:
-    """Create the global asyncpg pool from the given DSN."""
+async def open_pool(dsn: str, *, min_size: int = 1, max_size: int = 5) -> None:
+    """Create the global asyncpg pool from the given DSN.
+
+    The size is kept modest by default so several service instances stay under a
+    hosted session pooler's client cap (Supabase Session mode caps total clients).
+    """
     global _pool
-    _pool = await asyncpg.create_pool(dsn, init=_init_connection)
+    _pool = await asyncpg.create_pool(
+        dsn, init=_init_connection, min_size=min_size, max_size=max_size
+    )
 
 
 async def close_pool() -> None:

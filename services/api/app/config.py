@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str | None = None
+    # Connection pool sizing, kept modest so multiple service instances stay under
+    # a hosted session pooler's client cap (for example Supabase Session mode caps
+    # total clients at 15, and the staging service runs two machines).
+    db_pool_min_size: int = 1
+    db_pool_max_size: int = 5
     web_origin: str = "http://localhost:3000"
     service_name: str = "ib-desk-api"
     app_version: str = "0.1.0"
