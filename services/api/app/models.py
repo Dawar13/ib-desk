@@ -131,3 +131,6 @@ class HealthResponse(BaseModel):
     service: str
     version: str
     database: Literal["connected", "disconnected"]
+    # The live extraction prompt version, so a deploy can be confirmed before a
+    # re-extraction is spent. Bumps when the extraction prompt behavior changes.
+    extraction_prompt_version: str

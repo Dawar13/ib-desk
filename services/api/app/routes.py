@@ -38,6 +38,7 @@ from starlette.datastructures import UploadFile
 from app import db
 from app.config import get_settings
 from app.extraction.pipeline import run_extraction
+from app.extraction.prompts import EXTRACTION_PROMPT_VERSION
 from app.models import (
     Cell,
     CreateDocumentResponse,
@@ -173,6 +174,7 @@ async def health() -> HealthResponse:
         service=settings.service_name,
         version=settings.app_version,
         database="connected" if connected else "disconnected",
+        extraction_prompt_version=EXTRACTION_PROMPT_VERSION,
     )
 
 

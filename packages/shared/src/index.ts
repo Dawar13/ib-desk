@@ -164,4 +164,7 @@ export interface HealthResponse {
   service: string;
   version: string;
   database: "connected" | "disconnected";
+  // The live extraction prompt version, so a deploy can be confirmed from /health
+  // before a re-extraction is spent.
+  extraction_prompt_version: string;
 }
