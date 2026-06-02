@@ -216,4 +216,38 @@ describe("workspace states and reveal off the stream", () => {
     ).toBeInTheDocument();
     expect(stream.closed).toBe(true);
   });
+
+  it("falls back to polling when the stream drops, and settles when the sheet is done", async () => {
+    vi.useFakeTimers();
+    try {
+      api.getSheet.mockResolvedValue(allHintsSheet);
+      render(
+        <SheetWorkspace
+          sheetId="s"
+          initialStatus="extracting"
+          docName="Doc"
+          docType={null}
+          primaryTopic={null}
+        />,
+      );
+      const stream = MockEventSource.last as MockEventSource;
+      expect(stream).not.toBeNull();
+
+      // The stream drops. The UI must not declare failure; it polls instead.
+      await act(async () => {
+        stream.onerror?.();
+      });
+      expect(screen.queryByText("Extraction failed")).toBeNull();
+
+      // Advance to the first poll; getSheet reports done and the sheet settles.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100);
+      });
+      expect(
+        screen.getByRole("heading", { name: "Investors" }),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

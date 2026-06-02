@@ -522,7 +522,11 @@ async def stream_events(sheet_id: uuid.UUID) -> StreamingResponse:
 
     async def generate() -> AsyncIterator[str]:
         seen: set[str] = set()
-        for _ in range(180):
+        # Poll for new events. The window is long enough for a slow multi-section
+        # extraction to reach a terminal event, and a keepalive comment is sent
+        # each tick so an HTTP/2 proxy does not drop the connection as idle while
+        # the engine is between events.
+        for _ in range(600):
             rows = await pool.fetch(
                 """
                 select id, stage, message, payload, created_at
@@ -549,6 +553,16 @@ async def stream_events(sheet_id: uuid.UUID) -> StreamingResponse:
                     terminal = True
             if terminal:
                 return
+            # A comment line (ignored by EventSource) keeps the stream alive.
+            yield ": keepalive\n\n"
             await asyncio.sleep(1)
 
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

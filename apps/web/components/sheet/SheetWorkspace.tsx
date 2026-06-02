@@ -66,6 +66,10 @@ export default function SheetWorkspace({
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState<boolean>(false);
   const [running, setRunning] = useState<boolean>(false);
+  // When the events stream drops (for example an HTTP/2 proxy hiccup) the run may
+  // still be progressing on the server, so we poll the sheet rather than declare
+  // failure. polling drives that fallback.
+  const [polling, setPolling] = useState<boolean>(false);
 
   // Initialize from the known sheet status. A done sheet is fetched and shown; an
   // in-flight sheet opens the stream (which replays from the start); idle and
@@ -76,6 +80,7 @@ export default function SheetWorkspace({
     setReveal(INITIAL_REVEAL);
     setError(null);
     setStarting(false);
+    setPolling(false);
 
     if (initialStatus === "done") {
       setPhase("loading");
@@ -111,6 +116,7 @@ export default function SheetWorkspace({
     setError(null);
     setPayload(null);
     setReveal(INITIAL_REVEAL);
+    setPolling(false);
     setPhase("extracting");
     try {
       await triggerExtract(sheetId);
@@ -176,20 +182,82 @@ export default function SheetWorkspace({
       }
     };
 
+    // A transport-level failure (the connection dropped) does not mean the run
+    // failed: the engine may still be working on the server. Stop the broken
+    // stream and fall back to polling the sheet, rather than showing failure.
     source.onerror = (): void => {
       if (closed) {
         return;
       }
       close();
       setRunning(false);
-      setError("The extraction events stream was interrupted.");
-      setPhase("failed");
+      setPolling(true);
     };
 
     return () => {
       close();
     };
   }, [running, sheetId]);
+
+  // Polling fallback. When the stream is lost mid-run, poll the sheet until it
+  // reaches a terminal status, then settle. Bounded so it cannot poll forever.
+  useEffect(() => {
+    if (!polling) {
+      return;
+    }
+    let active = true;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const tick = async (): Promise<void> => {
+      attempts += 1;
+      try {
+        const result = await getSheet(sheetId);
+        if (!active) {
+          return;
+        }
+        if (result.sheet.status === "done") {
+          setPayload(result);
+          setPhase("done");
+          setPolling(false);
+          return;
+        }
+        if (result.sheet.status === "failed") {
+          setError("The extraction failed.");
+          setPhase("failed");
+          setPolling(false);
+          return;
+        }
+      } catch {
+        // A transient read error: keep polling.
+      }
+      if (!active) {
+        return;
+      }
+      if (attempts >= 120) {
+        setError(
+          "The extraction is taking longer than expected. Use Re-extract or refresh.",
+        );
+        setPhase("failed");
+        setPolling(false);
+        return;
+      }
+      timer = setTimeout(() => {
+        void tick();
+      }, 3000);
+    };
+
+    timer = setTimeout(() => {
+      void tick();
+    }, 3000);
+
+    return () => {
+      active = false;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [polling, sheetId]);
 
   // Resolve the subject and classification from the best available source: live
   // discovery first, then the persisted document fields, then the sheet title,
@@ -202,7 +270,10 @@ export default function SheetWorkspace({
     docName;
 
   const canExtract =
-    !starting && !running && (phase === "idle" || phase === "done" || phase === "failed");
+    !starting &&
+    !running &&
+    !polling &&
+    (phase === "idle" || phase === "done" || phase === "failed");
   const buttonLabel = starting
     ? "Starting"
     : running || phase === "extracting"
