@@ -28,8 +28,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
+from starlette.datastructures import UploadFile
 
 from app import db
 from app.config import get_settings
