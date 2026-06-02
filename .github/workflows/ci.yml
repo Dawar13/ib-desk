@@ -14,10 +14,10 @@ name: CI
 # and e2e jobs apply every migration in db/migrations in sorted order, so new
 # migrations run automatically.
 #
-# A fifth job, live-eval, is secret-gated and manual only. It runs the label-free
-# evaluation harness against live OpenAI models. It triggers on workflow_dispatch
-# alone, never on push or pull_request, and is skipped cleanly when the
-# OPENAI_API_KEY secret is absent, so forks and key-less repositories do not fail.
+# A fifth job, live-eval, is manual only. It runs the label-free evaluation
+# harness against live OpenAI models, using the OPENAI_API_KEY secret. It triggers
+# on workflow_dispatch alone, never on push or pull_request, and cannot be run from
+# a fork, so the live key never runs in an untrusted context.
 #
 # Action major versions are pinned. The env values below are local CI values,
 # not secrets. No real credentials are committed. The only secret used anywhere
@@ -263,12 +263,12 @@ jobs:
   live-eval:
     name: Live eval (manual, secret-gated)
     runs-on: ubuntu-latest
-    # Manual only. This job is defined under workflow_dispatch and is skipped on
-    # push and pull_request. The if guard skips it cleanly when the OPENAI_API_KEY
-    # secret is absent, so forks and key-less repositories do not fail. Secrets
-    # are not exposed to fork pull requests, and workflow_dispatch cannot be run
-    # from a fork, so the live key never runs in an untrusted context.
-    if: ${{ github.event_name == 'workflow_dispatch' && secrets.OPENAI_API_KEY != '' }}
+    # Manual only: it runs solely on workflow_dispatch, never on push or pull
+    # request, and workflow_dispatch cannot be triggered from a fork, so the live
+    # OPENAI_API_KEY never runs in an untrusted context. The secrets context is not
+    # allowed in a job if condition, so the gate is the event name alone; if the
+    # key is unset the harness exits with a clear message rather than fabricating.
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ib_desk
       STORAGE_BACKEND: local
