@@ -1,0 +1,44 @@
+# Render Blueprint for the IB Desk API (staging).
+#
+# Render's free web service has no per-process time cap (unlike Fly's trial), so
+# the in-process extraction completes. It does spin down after about 15 minutes of
+# no traffic and cold-starts in roughly a minute on the next request.
+#
+# Connect this repo as a Blueprint in the Render dashboard. The values marked
+# sync: false are secrets and are entered in the dashboard, never committed:
+#   DATABASE_URL    the Supabase session-pooler connection string
+#   OPENAI_API_KEY  the OpenAI key
+#   WEB_ORIGIN      the deployed web origin, for CORS (the Vercel URL)
+#
+# After the first deploy, point the web app's NEXT_PUBLIC_API_BASE_URL at the
+# service URL Render assigns (for example https://ib-desk-api.onrender.com).
+
+services:
+  - type: web
+    name: ib-desk-api
+    runtime: docker
+    plan: free
+    region: singapore
+    rootDir: services/api
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: STORAGE_BACKEND
+        value: local
+      - key: LLM_MODE
+        value: live
+      - key: OPENAI_MODEL_DISCOVERY
+        value: gpt-5.5
+      - key: OPENAI_MODEL_EXTRACTION
+        value: gpt-5.5
+      - key: OPENAI_MODEL_VERIFICATION
+        value: gpt-5.5
+      - key: DB_POOL_MAX_SIZE
+        value: "5"
+      - key: DATABASE_URL
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WEB_ORIGIN
+        sync: false
