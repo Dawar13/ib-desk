@@ -37,14 +37,16 @@ test("upload a PDF through the UI and preview its parsed text", async ({
     .getByLabel("Choose a file to upload")
     .setInputFiles(fixturePath);
 
-  // The new document appears in the sidebar list once the upload, parse, and
-  // list refresh complete. Scope to the Documents nav so the locator is
-  // unambiguous under Playwright strict mode.
+  // Target the uploaded document specifically. The sidebar may already contain a
+  // seeded sample document, so the first button is not necessarily the upload;
+  // matching the file name avoids selecting the wrong row (which would override
+  // the auto-selection of the new document). first() tolerates a database that
+  // already holds an earlier sample.pdf from a prior run.
   const sidebar = page.getByRole("navigation", { name: "Documents" });
-  const docButton = sidebar.getByRole("button").first();
-  await expect(docButton).toBeVisible({ timeout: 30000 });
+  const uploaded = sidebar.getByRole("button", { name: /sample\.pdf/ }).first();
+  await expect(uploaded).toBeVisible({ timeout: 30000 });
 
-  await docButton.click();
+  await uploaded.click();
 
   // The selected document panel renders the parsed text and the not-yet-extracted
   // status. The marker text proves the PDF parse and normalization round-tripped
