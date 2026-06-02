@@ -91,8 +91,8 @@ export default function DocumentView({ documentId }: DocumentViewProps) {
   );
 
   return (
-    <article className="flex h-full flex-col overflow-hidden">
-      <header className="border-b border-line bg-surface px-6 py-3">
+    <article>
+      <header className="sticky top-0 z-20 border-b border-line bg-surface px-6 py-3">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
           <h1 className="font-mono text-sm text-ink">{detail.name}</h1>
           <dl className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
@@ -127,21 +127,19 @@ export default function DocumentView({ documentId }: DocumentViewProps) {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1">
-        {detail.sheet_id !== null ? (
-          <SheetWorkspace
-            key={detail.sheet_id}
-            sheetId={detail.sheet_id}
-            initialStatus={detail.sheet_status ?? "idle"}
-            docName={detail.name}
-            docType={detail.doc_type}
-            primaryTopic={detail.primary_topic}
-            idleContent={parsedPreview}
-          />
-        ) : (
-          <div className="h-full overflow-y-auto">{parsedPreview}</div>
-        )}
-      </div>
+      {detail.sheet_id !== null ? (
+        <SheetWorkspace
+          key={detail.sheet_id}
+          sheetId={detail.sheet_id}
+          initialStatus={detail.sheet_status ?? "idle"}
+          docName={detail.name}
+          docType={detail.doc_type}
+          primaryTopic={detail.primary_topic}
+          idleContent={parsedPreview}
+        />
+      ) : (
+        parsedPreview
+      )}
     </article>
   );
 }

@@ -31,14 +31,14 @@ export default function Sheet({
   const closeEvidence = useCallback(() => setEvidence(null), []);
 
   return (
-    <div className="flex h-full flex-col">
+    <div>
       <SubjectHeader
         subject={subject}
         docType={docType}
         sectionCount={sections.length}
         fieldCount={fieldCount}
       />
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="px-6 pt-5 pb-20">
         {sections.length === 0 ? (
           <p className="text-sm text-muted">
             The extraction produced no grounded sections for this document.

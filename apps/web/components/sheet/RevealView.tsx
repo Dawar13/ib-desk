@@ -20,14 +20,14 @@ interface RevealViewProps {
 export default function RevealView({ subject, docType, reveal }: RevealViewProps) {
   const completed = new Set(reveal.completed);
   return (
-    <div className="flex h-full flex-col">
+    <div>
       <SubjectHeader
         subject={subject}
         docType={docType}
         sectionCount={reveal.discovered.length}
         fieldCount={null}
       />
-      <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="px-6 py-5">
         <div className="space-y-5">
           {reveal.discovered.map((section) => (
             <SkeletonSection

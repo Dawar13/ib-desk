@@ -6,7 +6,7 @@
 
 export function EmptyState() {
   return (
-    <div className="flex h-full items-center justify-center p-10 text-center">
+    <div className="flex min-h-[50vh] items-center justify-center p-10 text-center">
       <div className="max-w-sm">
         <h2 className="font-serif text-xl text-ink">No sheet yet</h2>
         <p className="mt-2 text-sm text-muted">
@@ -20,7 +20,7 @@ export function EmptyState() {
 
 export function LoadingState() {
   return (
-    <div className="flex h-full items-center justify-center p-10">
+    <div className="flex min-h-[50vh] items-center justify-center p-10">
       <p className="text-sm text-muted" role="status">
         Loading the sheet
       </p>
@@ -30,7 +30,7 @@ export function LoadingState() {
 
 export function DiscoveringState() {
   return (
-    <div className="flex h-full items-center justify-center p-10 text-center">
+    <div className="flex min-h-[50vh] items-center justify-center p-10 text-center">
       <div className="max-w-sm">
         <div
           aria-hidden="true"
@@ -47,7 +47,7 @@ export function DiscoveringState() {
 
 export function FailedState({ message }: { message: string | null }) {
   return (
-    <div className="flex h-full items-center justify-center p-10 text-center">
+    <div className="flex min-h-[50vh] items-center justify-center p-10 text-center">
       <div className="max-w-md">
         <h2 className="font-serif text-xl text-ink">Extraction failed</h2>
         <p className="mt-2 text-sm" style={{ color: "#b4503e" }} role="alert">

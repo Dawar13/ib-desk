@@ -283,7 +283,7 @@ export default function SheetWorkspace({
         : "Extract";
 
   return (
-    <section className="flex h-full flex-col" data-phase={phase}>
+    <section data-phase={phase}>
       <div className="flex items-center justify-between gap-3 border-b border-line bg-paper/60 px-4 py-2">
         <span className="text-xs font-medium uppercase tracking-wide text-muted">
           Sheet
@@ -303,14 +303,14 @@ export default function SheetWorkspace({
         </button>
       </div>
 
-      <div className="min-h-0 flex-1">
+      <div>
         {phase === "failed" ? (
           <FailedState message={error} />
         ) : phase === "loading" ? (
           <LoadingState />
         ) : phase === "idle" ? (
           idleContent !== undefined ? (
-            <div className="h-full overflow-y-auto">{idleContent}</div>
+            idleContent
           ) : (
             <EmptyState />
           )

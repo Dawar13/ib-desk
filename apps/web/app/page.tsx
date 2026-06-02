@@ -55,21 +55,19 @@ export default function Home() {
         onSelect={setSelectedId}
       />
 
-      <div className="flex flex-1 flex-col overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-y-auto">
         <IngestPanel onCreated={onCreated} />
 
-        <div className="flex-1 overflow-hidden">
-          {selectedId ? (
-            <DocumentView key={selectedId} documentId={selectedId} />
-          ) : (
-            <div className="flex h-full items-center justify-center p-6 text-center text-muted">
-              <p>
-                Select a document from the list, or add one above, to build and
-                view its sheet.
-              </p>
-            </div>
-          )}
-        </div>
+        {selectedId ? (
+          <DocumentView key={selectedId} documentId={selectedId} />
+        ) : (
+          <div className="flex min-h-[50vh] items-center justify-center p-6 text-center text-muted">
+            <p>
+              Select a document from the list, or add one above, to build and
+              view its sheet.
+            </p>
+          </div>
+        )}
       </div>
     </main>
   );
