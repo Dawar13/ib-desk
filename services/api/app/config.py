@@ -38,6 +38,23 @@ class Settings(BaseSettings):
     # page is below this. A tunable starting threshold, not a final value.
     scanned_min_chars_per_page: int = 50
 
+    # Extraction engine (Phase 2).
+    # LLM mode: "replay" replays recorded cassettes with no secret (the default,
+    # used by tests and the CI logic gates); "live" calls OpenAI; "record" calls
+    # OpenAI and writes a cassette.
+    llm_mode: str = "replay"
+    openai_api_key: str | None = None
+    # Per-pass model identifiers, configurable per the spec (no model name is
+    # hardcoded). Set these to the strongest available models before a live run;
+    # the live client requires them to be set.
+    openai_model_discovery: str = ""
+    openai_model_extraction: str = ""
+    openai_model_verification: str = ""
+    # Per-section extraction concurrency limit for the parallel extraction pass.
+    extraction_concurrency: int = 5
+    # Directory (relative to the service root) holding recorded cassettes.
+    cassette_dir: str = "tests/cassettes"
+
 
 @lru_cache
 def get_settings() -> Settings:
