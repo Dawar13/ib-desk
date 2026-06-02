@@ -1,3 +1,20 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* The product reads as a warm paper spreadsheet. The body carries the paper
+   background and ink text so every page inherits the look; individual surfaces
+   (cards, the header, the drawer) lift off it with the surface token. */
+@layer base {
+  body {
+    @apply bg-paper text-ink antialiased;
+  }
+}
+
+/* Respect users who prefer reduced motion: the gradual-reveal fade is decorative,
+   so disable it rather than animate against their preference. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-sheet-fade-in {
+    animation: none !important;
+  }
+}

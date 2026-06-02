@@ -100,7 +100,7 @@ create table cells (
 create table extraction_events (
   id uuid primary key default gen_random_uuid(),
   sheet_id uuid not null references sheets(id) on delete cascade,
-  stage text not null,                  -- discovery | extraction | verification | typing | done | error
+  stage text not null,                  -- discovery | extraction | section | verification | typing | done | error
   message text,
   payload jsonb,
   created_at timestamptz default now()
@@ -194,7 +194,7 @@ GET  /v1/sheets/{id}/export     -> ?format=xlsx (default) | pdf | csv, returns t
 
 Phase 1 endpoints. `POST /v1/documents` validates before storing (empty input -> 400 empty_input, oversized file -> 413 file_too_large, unsupported type -> 415 unsupported_type, parse error -> 422 parse_failed, scanned or unreadable -> 422 scanned_or_unreadable) so neither the database nor object storage holds empty documents. Errors use the body shape `{ "detail": { "code", "message" } }`. `GET /v1/documents` returns the lightweight `DocumentListItem` and never includes `raw_text`. `GET /v1/documents/{id}` returns the full `DocumentDetail` including `raw_text`, `page_count`, `sheet_id`, and `sheet_status`, and 404 if not found. `GET /v1/documents/{id}/original` streams the stored bytes with a content type derived from `source_kind`: `upload_pdf` is `application/pdf`, `upload_docx` is the OpenXML wordprocessing type, and `paste` is `text/plain; charset=utf-8`; it returns 404 when the document or its `byte_path` is missing. The `{id}` path parameter is typed as a UUID, so a malformed id is a 422 rather than a 500.
 
-Progress streaming uses SSE from FastAPI, or Supabase Realtime on `extraction_events`. The UI shows the gradual reveal off these events.
+Progress streaming uses SSE from FastAPI, or Supabase Realtime on `extraction_events`. The UI shows the gradual reveal off these events. As of Phase 3 the pipeline also writes a `section` event as each section finishes extraction (after grounding, before verification and typing), carrying `{ key, label, sort, kind, cell_count }` in its payload. This is a progress signal only: the section's grounded values are read from the `GET /v1/sheets/{id}` payload once the run reaches `done`, since persistence is atomic at the end of the run. The reveal therefore shows discovered section skeletons after the `discovery` event, settles each skeleton as its `section` event arrives, and fades in the final values on `done`. It degrades gracefully to a coarser pass-level reveal when only `discovery`, `extraction`, and `done` events are seen. The primary-subject header is built from persisted, always-available data (the document `primary_topic` and `doc_type` plus the sheet `title` and counts), not from the discovery `primary_subject.identity_fields`, which are not persisted; per-subject identity facts surface as ordinary discovered sections, which keeps the header schema-agnostic.
 
 ## The extraction pipeline in detail
 
@@ -274,6 +274,8 @@ Goal: prove the core works across very different documents.
 Deliverables: the four-pass pipeline, the discovery and extraction JSON contracts, persistence into `sections` and `cells`, per-section parallelism with backoff and error isolation, cost tracking, the SSE events stream, and the eval harness. The model never reports offsets; grounding computes `char_start` and `char_end` by locating the supporting sentence in `raw_text`, and `value_norm` is computed deterministically by the service. Ungrounded values are dropped. This phase ships a deliberately plain, debug-only rendering; the visual grid, charts, evidence drawer, and styled export are later phases. The labeled golden set is descoped by the owner and replaced by a label-free eval (fabrication rate, grounding resolution, value-level stability) plus the secret-free cassette logic gates.
 Interfaces introduced: POST /v1/sheets/{id}/extract, GET /v1/sheets/{id}/events, GET /v1/sheets/{id} (populated payload once done), the discovery and extraction schemas, the RenderHint enum.
 Acceptance: feed three structurally different documents and get three sensible, distinct schemas with grounded data. The label-free eval meets the bar. Fabrication rate near zero. The secret-free cassette logic gates pass in replay mode with no OpenAI key.
+
+Status as of 2026-06-02. Clauses two through four are met: the label-free eval and a single-document live smoke on the configured models show fabrication 0.0 and grounding 1.0 over 172 grounded cells, the secret-free cassette logic gates pass in replay with no key, and the staging service is deployed with its database connected. Clause one was exercised live on one document only (a company profile). The owner elected to proceed to Phase 3 on this evidence rather than block on the full three-document run. Running the label-free eval across a market document and a person profile, to confirm three distinct grounded schemas, remains an open follow-up tracked here.
 
 ### Phase 3: Dynamic spreadsheet UI
 Goal: render any discovered schema beautifully and dynamically.

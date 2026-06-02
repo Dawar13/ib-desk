@@ -5,9 +5,10 @@ import { test, expect } from "@playwright/test";
 // Headline ingestion-through-the-UI test. It uploads a born-digital sample PDF
 // via the file input, waits for the document to appear in the sidebar, selects
 // it, and asserts both the parsed text (which contains the marker
-// "born-digital PDF") and the "Not yet extracted" status are visible. This
-// proves the full Phase 1 path through the browser: POST /v1/documents, the
-// list refresh, selection, and GET /v1/documents/{id} rendering the parsed text.
+// "born-digital PDF") and the Extract action are visible. This proves the full
+// ingestion path through the browser: POST /v1/documents, the list refresh,
+// selection, and GET /v1/documents/{id} rendering the parsed text in the sheet
+// workspace's idle state, ready to extract. It does not run the live engine.
 //
 // The fixture PDF is generated from the Python born_digital_pdf() fixture by the
 // orchestrator and CI. Locally, without the fixture, the test skips gracefully
@@ -54,7 +55,5 @@ test("upload a PDF through the UI and preview its parsed text", async ({
   await expect(page.getByText(/born-digital PDF/)).toBeVisible({
     timeout: 30000,
   });
-  await expect(
-    page.getByText("Not yet extracted", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Extract" })).toBeVisible();
 });

@@ -12,6 +12,7 @@
     "web:start": "pnpm --filter @ib-desk/web start",
     "web:lint": "pnpm --filter @ib-desk/web lint",
     "web:typecheck": "pnpm --filter @ib-desk/web typecheck",
+    "web:test": "pnpm --filter @ib-desk/web test",
     "e2e": "pnpm --filter @ib-desk/web e2e"
   }
 }

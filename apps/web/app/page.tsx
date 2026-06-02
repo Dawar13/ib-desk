@@ -7,12 +7,10 @@ import DocumentSidebar from "@/components/DocumentSidebar";
 import IngestPanel from "@/components/IngestPanel";
 import DocumentView from "@/components/DocumentView";
 
-// The Phase 1 ingestion UI. A left sidebar lists the workspace documents most
-// recent first; the main area holds the intake controls (file upload with drag
-// and drop, plus a paste control) and, once a document is selected, its parsed
-// text preview. There is no extraction, grid, charts, or evidence drawer here:
-// Phase 1 only gets a document into the system as clean text and lets the user
-// verify the parse.
+// The workspace shell. A left sidebar lists the workspace documents most recent
+// first; the main area holds the intake controls (file upload with drag and drop,
+// plus a paste control) and, once a document is selected, its sheet workspace,
+// which builds and renders the dynamic spreadsheet for that document.
 export default function Home() {
   const [documents, setDocuments] = useState<DocumentListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -48,7 +46,7 @@ export default function Home() {
   );
 
   return (
-    <main className="flex h-screen overflow-hidden bg-white text-gray-900">
+    <main className="flex h-screen overflow-hidden bg-paper text-ink">
       <DocumentSidebar
         documents={documents}
         selectedId={selectedId}
@@ -64,10 +62,10 @@ export default function Home() {
           {selectedId ? (
             <DocumentView key={selectedId} documentId={selectedId} />
           ) : (
-            <div className="flex h-full items-center justify-center p-6 text-center text-gray-500">
+            <div className="flex h-full items-center justify-center p-6 text-center text-muted">
               <p>
-                Select a document from the list, or add one above, to see its
-                parsed text.
+                Select a document from the list, or add one above, to build and
+                view its sheet.
               </p>
             </div>
           )}
