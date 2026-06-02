@@ -11,14 +11,14 @@ export default function ChipList({ section, onEvidence }: RendererProps) {
     return <SectionEmpty />;
   }
   return (
-    <ul className="flex flex-wrap gap-2">
+    <ul className="flex flex-wrap gap-1.5">
       {section.cells.map((cell) => (
         <li key={cell.id}>
           <EvidenceValue
             target={{ cell, section }}
             onEvidence={onEvidence}
             variant="plain"
-            className="inline-flex items-center gap-1.5 rounded-full border border-line bg-paper px-2.5 py-1 hover:bg-ink/[0.04]"
+            className="inline-flex items-center gap-1.5 border border-line bg-paper px-2 py-0.5 hover:bg-ink/[0.05]"
           />
         </li>
       ))}

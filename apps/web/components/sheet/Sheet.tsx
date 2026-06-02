@@ -38,13 +38,13 @@ export default function Sheet({
         sectionCount={sections.length}
         fieldCount={fieldCount}
       />
-      <div className="px-6 pt-5 pb-20">
+      <div className="px-4 pt-4 pb-20">
         {sections.length === 0 ? (
           <p className="text-sm text-muted">
             The extraction produced no grounded sections for this document.
           </p>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-3">
             {sections.map((section, index) => (
               <SectionCard
                 key={section.id}

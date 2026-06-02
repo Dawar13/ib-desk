@@ -293,7 +293,7 @@ export default function SheetWorkspace({
           onClick={() => void onExtract()}
           disabled={!canExtract}
           className={cx(
-            "rounded-md px-3 py-1 text-sm font-medium transition-colors",
+            "px-3 py-1 text-sm font-medium transition-colors",
             canExtract
               ? "bg-ink text-paper hover:bg-ink/90"
               : "cursor-not-allowed bg-line text-faint",

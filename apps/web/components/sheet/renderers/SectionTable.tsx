@@ -1,12 +1,15 @@
 "use client";
 
-// table renderer. A real grid with a header row from the section's columns (or
-// columns derived from the data) and one body row per row index. Each present
-// value is clickable for evidence with its confidence dot; a missing cell shows a
-// faint placeholder rather than an invented value. Also serves as the table view
-// and the safe fallback for chart-hinted sections.
+// table renderer. A real spreadsheet grid: a header row from the section's columns
+// (or columns derived from the data), then one body row per row index, with
+// hairline borders on every cell and no rounded corners. Columns size to their
+// content, and a long-text cell wraps within a generous maximum width so a wide
+// column stays a few lines tall instead of squeezing into a narrow, very tall
+// column. The grid scrolls horizontally when it is wider than the view. Each
+// present value is clickable for evidence with its confidence dot; a missing cell
+// shows a faint placeholder rather than an invented value. Also serves as the
+// table view and the safe fallback for chart-hinted sections.
 
-import { cx } from "@/lib/cx";
 import { tableColumns, tableRows } from "@/lib/sheet/table";
 import { numericValue, NO_VALUE } from "@/lib/sheet/value";
 import { EvidenceValue, SectionEmpty } from "../primitives";
@@ -20,15 +23,15 @@ export default function SectionTable({ section, onEvidence }: RendererProps) {
   const rows = tableRows(section);
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
+    <div className="overflow-x-auto border border-line">
+      <table className="min-w-full border-collapse text-[13px]">
         <thead>
-          <tr className="border-b border-line text-left">
+          <tr>
             {columns.map((column) => (
               <th
                 key={column.key}
                 scope="col"
-                className="px-3 py-2 font-medium text-muted"
+                className="border-b border-r border-line bg-paper px-2 py-1 text-left align-bottom font-semibold text-muted last:border-r-0"
               >
                 {column.label}
               </th>
@@ -37,29 +40,23 @@ export default function SectionTable({ section, onEvidence }: RendererProps) {
         </thead>
         <tbody>
           {rows.map((row) => (
-            <tr
-              key={row.rowIdx}
-              className="border-b border-line/60 last:border-0 hover:bg-ink/[0.02]"
-            >
+            <tr key={row.rowIdx} className="odd:bg-surface even:bg-paper/40">
               {columns.map((column) => {
                 const cell = row.cells[column.key];
                 return (
                   <td
                     key={column.key}
-                    className={cx(
-                      "px-3 py-1.5 align-top",
-                      cell && numericValue(cell) !== null && "tabular-nums",
-                    )}
+                    className="border-b border-r border-line p-0 align-top last:border-r-0"
                   >
                     {cell ? (
                       <EvidenceValue
                         target={{ cell, section }}
                         onEvidence={onEvidence}
                         variant={numericValue(cell) !== null ? "mono" : "plain"}
-                        className="inline-flex items-center gap-1.5 px-1 py-0.5 hover:bg-ink/[0.04]"
+                        className="flex w-full max-w-[26rem] items-start gap-1.5 px-2 py-1 text-left hover:bg-ink/[0.05]"
                       />
                     ) : (
-                      <span className="text-faint">{NO_VALUE}</span>
+                      <span className="block px-2 py-1 text-faint">{NO_VALUE}</span>
                     )}
                   </td>
                 );

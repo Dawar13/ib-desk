@@ -62,7 +62,7 @@ function ChartOrTable({ section, onEvidence }: RendererProps) {
       <div
         role="group"
         aria-label="Chart or table view"
-        className="mb-3 inline-flex overflow-hidden rounded border border-line text-xs"
+        className="mb-2 inline-flex overflow-hidden border border-line text-xs"
       >
         <button
           type="button"
@@ -117,21 +117,23 @@ export default function SectionCard({
       data-render-hint={section.render_hint}
       data-section-kind={section.kind}
       data-chart-hint={chart ? "true" : "false"}
-      className="animate-sheet-fade-in overflow-hidden rounded-md border border-line bg-surface shadow-[0_1px_0_rgba(43,39,34,0.03)]"
+      className="animate-sheet-fade-in overflow-hidden border border-line bg-surface"
       style={{ animationDelay: `${delayMs}ms`, borderLeft: `3px solid ${accent}` }}
     >
-      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-line bg-paper/40 px-4 py-2.5">
-        <h3 className="font-serif text-lg leading-tight text-ink">{section.label}</h3>
+      <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 border-b border-line bg-paper px-3 py-1.5">
+        <h3 className="font-serif text-base font-medium leading-tight text-ink">
+          {section.label}
+        </h3>
         {section.category ? (
           <span
-            className="rounded-full px-2 py-0.5 text-xs font-medium"
-            style={{ backgroundColor: `${accent}1f`, color: accent }}
+            className="text-[11px] font-medium uppercase tracking-wide"
+            style={{ color: accent }}
           >
             {section.category}
           </span>
         ) : null}
       </header>
-      <div className="px-4 py-3">
+      <div className="p-2">
         <SectionBody section={section} onEvidence={onEvidence} />
       </div>
     </section>

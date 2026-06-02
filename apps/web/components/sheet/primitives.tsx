@@ -57,7 +57,7 @@ export function EvidenceValue({
       onClick={() => onEvidence(target)}
       title={`${value}. Confidence ${style.label}. Click for the source sentence.`}
       className={cx(
-        "group rounded text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ink/20",
+        "group text-left transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ink/30",
         className,
       )}
     >

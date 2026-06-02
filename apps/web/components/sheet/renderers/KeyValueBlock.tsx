@@ -16,7 +16,7 @@ export default function KeyValueBlock({ section, onEvidence }: RendererProps) {
       {section.cells.map((cell) => (
         <div
           key={cell.id}
-          className="flex items-baseline justify-between gap-4 py-1.5"
+          className="flex items-baseline justify-between gap-4 py-1"
         >
           <dt className="text-sm text-muted">{cellFieldLabel(cell)}</dt>
           <dd className="text-right">
