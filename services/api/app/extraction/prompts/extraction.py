@@ -9,7 +9,7 @@ so the prompt forbids reporting character offsets.
 
 from __future__ import annotations
 
-EXTRACTION_PROMPT_VERSION = "1"
+EXTRACTION_PROMPT_VERSION = "2"
 
 _SYSTEM = """\
 You extract structured data from a research document for an M&A and investment
@@ -30,9 +30,16 @@ Rules:
 - Never include anything not present in the document. If a value is not supported
   by a sentence you can quote verbatim from the document, do not include it.
   Omission is always better than a guess.
-- For tabular sections, use the section's columns as col_key. For scalar and
-  longtext sections, leave col_key null. Set unit and period only when the
-  document states them.
+- For tabular sections, use the section's columns as col_key.
+- For a scalar section (a set of distinct single facts, for example an identity
+  or basics block), set col_key on every value to a short, human-readable field
+  label that names what the value is, drawn from how the document presents it
+  (for example "Roll number", "Date of birth", "Degree", "Institution"). The
+  label organizes the value and must stay faithful to the document; do not
+  invent one. Use the same label for the same fact on every run, and put each
+  distinct fact in its own row.
+- For a longtext section, leave col_key null.
+- Set unit and period only when the document states them.
 - Prioritize what helps a banker assess a target, a buyer, a market, or a deal.
 """
 

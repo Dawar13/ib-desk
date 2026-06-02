@@ -51,9 +51,11 @@ class DiscoveryResult(BaseModel):
 
 
 class ExtractionCell(BaseModel):
-    # col_key is null for scalar and longtext sections. value is the value exactly
-    # as written; source_snippet is the verbatim supporting sentence. The service
-    # computes value_norm and the char span; the model never reports them.
+    # col_key is the column key for tabular sections, a short field label for
+    # scalar sections (so each fact carries the name of what it is, not a
+    # positional placeholder), and null for longtext sections. value is the value
+    # exactly as written; source_snippet is the verbatim supporting sentence. The
+    # service computes value_norm and the char span; the model never reports them.
     col_key: str | None
     value: str
     source_snippet: str
