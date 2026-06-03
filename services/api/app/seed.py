@@ -95,11 +95,12 @@ async def seed(conn: asyncpg.Connection) -> None:
         )
         await conn.execute(
             """
-            insert into sheets (id, document_id, title, status, field_count)
-            values ($1::uuid, $2::uuid, $3, $4, $5)
+            insert into sheets (id, document_id, workspace_id, title, status, field_count)
+            values ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6)
             """,
             SHEET_ID,
             DOCUMENT_ID,
+            WORKSPACE_ID,
             SHEET_TITLE,
             SHEET_STATUS,
             SHEET_FIELD_COUNT,
