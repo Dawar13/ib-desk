@@ -60,6 +60,22 @@ class Settings(BaseSettings):
     # Directory (relative to the service root) holding recorded cassettes.
     cassette_dir: str = "tests/cassettes"
 
+    # Rate limiting and the usage backstop (Phase 5). The burst window throttles
+    # uploads and extracts per caller (workspace plus client address); the usage
+    # window caps extractions per workspace as a second guard behind the OpenAI
+    # spend cap. Generous enough for a real visitor, low enough to stop abuse.
+    rate_limit_window_seconds: float = 60.0
+    rate_limit_upload_max: int = 20
+    rate_limit_extract_max: int = 10
+    usage_window_seconds: float = 3600.0
+    usage_extract_max: int = 50
+
+    # Large-document budget (Phase 5). A document whose canonical text exceeds
+    # this character count is too large for a single model pass; it is handled by
+    # chunk-and-merge rather than truncated. A safe budget for the 20 to 40 page
+    # research documents in scope, below typical model context limits.
+    single_pass_char_budget: int = 120_000
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -54,9 +54,24 @@ from app.models import (
 )
 from app.normalization import assemble_raw_text
 from app.parsing import ParseResult, looks_scanned, parse_docx, parse_pdf, parse_text
+from app.ratelimit import RateLimiter
 from app.storage import get_storage
 
 router = APIRouter()
+
+# Rate limiting and the usage backstop for the public endpoints (Phase 5). The
+# burst limiter throttles uploads and extracts per caller; the usage limiter caps
+# extractions per workspace over a longer window. Both are in-process, the right
+# scope for a single-instance demo.
+_RATE_LIMITER = RateLimiter()
+_USAGE_LIMITER = RateLimiter()
+
+
+def reset_rate_limits() -> None:
+    """Clear the in-process limiter state. Used by tests for isolation."""
+    _RATE_LIMITER.reset()
+    _USAGE_LIMITER.reset()
+
 
 # References to in-flight extraction background tasks, held so they are not
 # garbage collected before they finish.
@@ -129,6 +144,32 @@ async def _sheet_belongs(pool: Any, sheet_id_str: str, workspace_id: str) -> boo
         workspace_id,
     )
     return row is not None
+
+
+def _caller_key(request: Request, workspace_id: str) -> str:
+    client = request.client.host if request.client is not None else "unknown"
+    return f"{workspace_id}:{client}"
+
+
+def _enforce_rate_limit(
+    request: Request, workspace_id: str, scope: str, max_requests: int, window_seconds: float
+) -> None:
+    """Throttle a caller's bursts on a scope, returning 429 over the limit."""
+    key = f"{scope}:{_caller_key(request, workspace_id)}"
+    if not _RATE_LIMITER.check(key, max_requests, window_seconds):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many requests. Please slow down and try again shortly.",
+        )
+
+
+def _enforce_usage(workspace_id: str, max_requests: int, window_seconds: float) -> None:
+    """Cap how many extractions a workspace can start, behind the spend cap."""
+    if not _USAGE_LIMITER.check(f"extract-usage:{workspace_id}", max_requests, window_seconds):
+        raise HTTPException(
+            status_code=429,
+            detail="Extraction usage limit reached for now. Please try again later.",
+        )
 
 
 def _document_list_item(record: Any) -> DocumentListItem:
@@ -329,6 +370,18 @@ async def create_document(request: Request) -> CreateDocumentResponse:
     # Ensure the database is available before doing any parsing or storage work.
     _require_pool()
 
+    # Throttle uploads per caller before any parsing or storage work, so a public
+    # link cannot be hammered. Rejected uploads count too, so bad-input floods are
+    # throttled as well.
+    workspace_id = _workspace_id(request)
+    _enforce_rate_limit(
+        request,
+        workspace_id,
+        "upload",
+        settings.rate_limit_upload_max,
+        settings.rate_limit_window_seconds,
+    )
+
     content_type = (request.headers.get("content-type") or "").lower()
 
     if content_type.startswith("multipart/form-data"):
@@ -399,7 +452,7 @@ async def create_document(request: Request) -> CreateDocumentResponse:
     # both persist null rather than a fabricated number.
     page_count = result.page_count if source_kind == "upload_pdf" else None
     sheet_id = await _insert_document(
-        workspace_id=_workspace_id(request),
+        workspace_id=workspace_id,
         document_id=document_id,
         name=name,
         source_kind=source_kind,
@@ -626,14 +679,27 @@ async def trigger_extract(sheet_id: uuid.UUID, request: Request) -> dict[str, st
     """
     pool = _require_pool()
     sheet_id_str = str(sheet_id)
-    if not await _sheet_belongs(pool, sheet_id_str, _workspace_id(request)):
+    workspace_id = _workspace_id(request)
+    if not await _sheet_belongs(pool, sheet_id_str, workspace_id):
         raise HTTPException(status_code=404, detail="Sheet not found")
+
+    # Throttle extract bursts per caller and cap total extractions per workspace,
+    # so the public link cannot run up the model bill. Both checks happen before
+    # any status change or background task is started.
+    settings = get_settings()
+    _enforce_rate_limit(
+        request,
+        workspace_id,
+        "extract",
+        settings.rate_limit_extract_max,
+        settings.rate_limit_window_seconds,
+    )
+    _enforce_usage(workspace_id, settings.usage_extract_max, settings.usage_window_seconds)
 
     await pool.execute(
         "update sheets set status = 'extracting' where id = $1::uuid",
         sheet_id_str,
     )
-    settings = get_settings()
     task: asyncio.Task[None] = asyncio.create_task(run_extraction(pool, settings, sheet_id_str))
     _EXTRACTION_TASKS.add(task)
     task.add_done_callback(_EXTRACTION_TASKS.discard)

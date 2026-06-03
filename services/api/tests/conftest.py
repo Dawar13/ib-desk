@@ -30,3 +30,13 @@ requires_db = pytest.mark.skipif(
 def client() -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limits() -> Iterator[None]:
+    # Clear the in-process rate-limiter state before each test, so bursts in one
+    # test do not throttle another and the suite stays order-independent.
+    from app.routes import reset_rate_limits
+
+    reset_rate_limits()
+    yield
