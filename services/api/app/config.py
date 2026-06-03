@@ -73,8 +73,14 @@ class Settings(BaseSettings):
     # Large-document budget (Phase 5). A document whose canonical text exceeds
     # this character count is too large for a single model pass; it is handled by
     # chunk-and-merge rather than truncated. A safe budget for the 20 to 40 page
-    # research documents in scope, below typical model context limits.
+    # research documents in scope, below typical model context limits. Chunks
+    # overlap so a boundary sentence still appears whole in one chunk, and the
+    # number of chunks is capped so a runaway document cannot fan out unbounded
+    # model calls; beyond the cap the leading portion is processed and the
+    # truncation is reported, never silent.
     single_pass_char_budget: int = 120_000
+    chunk_overlap_chars: int = 2_000
+    max_chunks: int = 8
 
 
 @lru_cache

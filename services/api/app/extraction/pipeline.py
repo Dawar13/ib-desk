@@ -19,7 +19,7 @@ import asyncio
 from typing import Any
 
 from app.config import Settings
-from app.extraction import grounding, valuenorm
+from app.extraction import chunking, grounding, valuenorm
 from app.extraction.llm import LLMClient, Usage, get_llm
 from app.extraction.persist import (
     ResolvedCell,
@@ -174,11 +174,24 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
             await write_event(pool, sheet_id, "error", "no document text for this sheet")
             await set_status(pool, sheet_id, "failed")
             return
+
+        # Large-document handling: a document within budget yields a single chunk
+        # and the unchanged single-pass behavior; a larger one is split into
+        # ordered overlapping chunks and discovery sees a representative sample of
+        # the whole. Truncation past the chunk cap is reported below, never silent.
+        chunks, truncated = chunking.split_chunks(
+            raw_text,
+            settings.single_pass_char_budget,
+            settings.chunk_overlap_chars,
+            settings.max_chunks,
+        )
         discovery: DiscoveryResult = await _call(
             llm,
             "discovery",
             settings.openai_model_discovery,
-            build_discovery_messages(raw_text),
+            build_discovery_messages(
+                chunking.representative_sample(raw_text, settings.single_pass_char_budget)
+            ),
             DiscoveryResult,
             usages,
         )
@@ -194,6 +207,25 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
             },
         )
 
+        # Report large-document handling so it is never silent. The leading
+        # portion is processed when a document exceeds the chunk cap.
+        if len(chunks) > 1:
+            await write_event(
+                pool,
+                sheet_id,
+                "extraction",
+                f"large document: extracting over {len(chunks)} overlapping chunks",
+                {"chunks": len(chunks), "truncated": truncated},
+            )
+            if truncated:
+                await write_event(
+                    pool,
+                    sheet_id,
+                    "extraction",
+                    "document exceeds the chunk budget; extracted the leading portion",
+                    {"truncated": True},
+                )
+
         # Pass 2: extraction (parallel, error-isolated), then ground and normalize.
         await write_event(
             pool,
@@ -207,15 +239,32 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
         async def extract_section(index: int, section: DiscoverySection) -> ResolvedSection | None:
             async with semaphore:
                 try:
-                    extraction: ExtractionResult = await _call(
-                        llm,
-                        f"extract.{section.key}",
-                        settings.openai_model_extraction,
-                        build_extraction_messages(_section_definition(section), raw_text),
-                        ExtractionResult,
-                        usages,
+                    # Extract over each chunk, grounding every value against the
+                    # full canonical text so its span is a full-text offset, then
+                    # merge with row de-duplication. A single-chunk document keeps
+                    # the original logical id and behavior, so existing cassettes
+                    # and the single-pass path are unchanged.
+                    cell_lists: list[list[ResolvedCell]] = []
+                    for chunk_index, chunk in enumerate(chunks):
+                        logical_id = (
+                            f"extract.{section.key}"
+                            if len(chunks) == 1
+                            else f"extract.{section.key}.c{chunk_index}"
+                        )
+                        extraction: ExtractionResult = await _call(
+                            llm,
+                            logical_id,
+                            settings.openai_model_extraction,
+                            build_extraction_messages(_section_definition(section), chunk.text),
+                            ExtractionResult,
+                            usages,
+                        )
+                        cell_lists.append(_ground_and_normalize(raw_text, extraction))
+                    cells = (
+                        cell_lists[0]
+                        if len(cell_lists) == 1
+                        else chunking.merge_resolved(cell_lists)
                     )
-                    cells = _ground_and_normalize(raw_text, extraction)
                     columns = (
                         [{"key": c.key, "label": c.label} for c in section.columns]
                         if section.columns
