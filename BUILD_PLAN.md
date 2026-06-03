@@ -191,10 +191,12 @@ GET  /v1/documents/{id}/original-> stream the stored original bytes with a type 
 GET  /v1/sheets/{id}            -> full payload: sheet, sections, cells, source spans
 POST /v1/sheets/{id}/extract    -> starts the pipeline, returns immediately
 GET  /v1/sheets/{id}/events     -> server sent events stream of extraction_events
-GET  /v1/sheets/{id}/export     -> ?format=xlsx (default) | pdf | csv, returns the styled file
+GET  /v1/sheets/{id}/export     -> ?format=xlsx (default) | csv (pdf optional), returns the styled file
 ```
 
 Phase 1 endpoints. `POST /v1/documents` validates before storing (empty input -> 400 empty_input, oversized file -> 413 file_too_large, unsupported type -> 415 unsupported_type, parse error -> 422 parse_failed, scanned or unreadable -> 422 scanned_or_unreadable) so neither the database nor object storage holds empty documents. Errors use the body shape `{ "detail": { "code", "message" } }`. `GET /v1/documents` returns the lightweight `DocumentListItem` and never includes `raw_text`. `GET /v1/documents/{id}` returns the full `DocumentDetail` including `raw_text`, `page_count`, `sheet_id`, and `sheet_status`, and 404 if not found. `GET /v1/documents/{id}/original` streams the stored bytes with a content type derived from `source_kind`: `upload_pdf` is `application/pdf`, `upload_docx` is the OpenXML wordprocessing type, and `paste` is `text/plain; charset=utf-8`; it returns 404 when the document or its `byte_path` is missing. The `{id}` path parameter is typed as a UUID, so a malformed id is a 422 rather than a 500.
+
+Phase 4 endpoint. `GET /v1/sheets/{id}/export` returns the export as an attachment with a sanitized filename from the sheet title. `?format=xlsx` (default) returns the styled, section-organized workbook with native charts and source-sentence comments; `?format=csv` returns the flat secondary format; an unknown format is a 400 and an absent sheet is a 404. The export is computed from the stored sheet payload (the same assembly the read path uses), so it needs no model call. The canonical document text used for the in-document evidence highlight is already exposed by `GET /v1/documents/{id}` (`raw_text`) from Phase 1; the web sheet view passes that text to the evidence drawer, so no new endpoint was needed for it.
 
 Progress streaming uses SSE from FastAPI, or Supabase Realtime on `extraction_events`. The UI shows the gradual reveal off these events. As of Phase 3 the pipeline also writes a `section` event as each section finishes extraction (after grounding, before verification and typing), carrying `{ key, label, sort, kind, cell_count }` in its payload. This is a progress signal only: the section's grounded values are read from the `GET /v1/sheets/{id}` payload once the run reaches `done`, since persistence is atomic at the end of the run. The reveal therefore shows discovered section skeletons after the `discovery` event, settles each skeleton as its `section` event arrives, and fades in the final values on `done`. It degrades gracefully to a coarser pass-level reveal when only `discovery`, `extraction`, and `done` events are seen. The primary-subject header is built from persisted, always-available data (the document `primary_topic` and `doc_type` plus the sheet `title` and counts), not from the discovery `primary_subject.identity_fields`, which are not persisted; per-subject identity facts surface as ordinary discovered sections, which keeps the header schema-agnostic.
 
@@ -215,7 +217,7 @@ The frontend reads `sections` and renders each by `render_hint`, with no knowled
 - keyvalue and longtext: text blocks.
 - chips and table: the grid and chip components, with a confidence dot per value.
 - timeseries and breakdown: a recharts chart plus the underlying table, with a toggle.
-- Every value is clickable. Clicking opens the evidence drawer showing the `source_snippet` and, in Phase 4, highlights the span in a preview of the original document using `char_start` and `char_end`.
+- Every value is clickable. Clicking opens the evidence drawer showing the `source_snippet`. As of Phase 4 the drawer also highlights the exact span in a preview of the canonical document text using the service-computed `char_start` and `char_end`. The highlight is into the canonical normalized text the offsets index into, not the original PDF's visual layout, which is a separate coordinate-mapping problem and out of scope; the original file stays downloadable from Phase 1. When a span cannot be resolved the preview degrades to the sentence without an in-text highlight rather than breaking.
 - Color comes from `category`. Confidence comes from the cell `confidence`. One sheet tab per document.
 
 ## Export, styled xlsx
@@ -224,9 +226,12 @@ Server-side with xlsxwriter:
 
 - Title block merged and styled. Section header rows filled with the category color, bold white text.
 - Sub-tables with styled header rows and banded rows. Rupee and percent number formats applied to `value_norm` with `unit`.
-- Native embedded charts for sections whose `render_hint` is a chart type, using the same series the UI shows.
+- Native embedded charts for sections whose `render_hint` is a chart type, using the same series the UI shows. The chart is emitted only when the section has at least three comparable points, matching the conservative chart rule; below that the section exports its table alone.
 - Freeze the header. Sensible column widths.
-- The downloaded file reflects the visual sheet, never the internal tidy rows. pdf and csv are secondary formats.
+- Each value cell carries a comment with its source sentence and confidence, so the grounding travels into the downloaded workbook itself and a value stays traceable even outside the app. This refines the blueprint as of Phase 4.
+- The downloaded file reflects the visual sheet, never the internal tidy rows. csv is the secondary format; pdf is optional and non-blocking.
+
+Phase 4 status. The export lives in `services/api/app/export` (the xlsxwriter workbook builder and the csv builder) behind `GET /v1/sheets/{id}/export?format=xlsx|csv`. The builder is a pure function of the stored sheet payload, so it needs no model call and its gates are deterministic and secret-free: they generate the workbook from a fixture payload and read it back, asserting the title block, the sections in engine order, every value present, category-colored headers, banded rows, rupee and percent number formats, the merged title, frozen panes, native charts of the right type only where warranted, and the source-sentence comments. The category header colors are the exact on-screen accents, ported from the web client palette into `app/export/palette.py`.
 
 ## Evaluation
 
@@ -290,6 +295,8 @@ Goal: the download looks as good as the screen, and evidence ties back to the or
 Deliverables: the xlsxwriter export with colors, number formats, banded tables, merged title, freeze panes, and native embedded charts. A source document preview pane that highlights the exact span on cell click using char offsets. csv and pdf as secondary formats.
 Interfaces introduced: GET /v1/sheets/{id}/export.
 Acceptance: the downloaded xlsx opens cleanly in Excel, is styled and colored, contains native charts, and is editable. Clicking a cell highlights the supporting sentence in the original document.
+
+Status as of 2026-06-03. Built and green on the deterministic, secret-free gates: the styled xlsx export (title block, category-colored headers, banded tables, rupee and percent number formats, frozen panes, native charts, and source-sentence comments), the csv secondary, the export endpoint, the download control disabled until the sheet is done, and the in-document evidence highlight with its graceful fallback. All of these are read back and asserted in CI (the service tests open the generated workbook with openpyxl and inspect the chart parts in the zip; the web tests drive the highlight and the download control). pdf was left out as the optional, non-blocking format. The in-document highlight is into the canonical text, the honest limit of what the offsets support. The owner-confirmed live checks remain: export a real already-extracted document on staging, open it in Excel, and confirm the styling, colors, number formats, native charts, comments, and editability, then click a value and confirm the in-document highlight.
 
 ### Phase 5: Hardening and end to end
 Goal: a production-ready product.
