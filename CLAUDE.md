@@ -78,6 +78,8 @@ The product lives or dies on model behavior, so the discovery, extraction, and v
 
 This is finance research data and some of it will be sensitive. Enforce row level security by workspace. Decide data retention and encryption explicitly. Before any real client document is loaded, confirm whether documents may be sent to a third-party model at all. Treat this as a gating decision, not an afterthought.
 
+Phase 5 posture, demo grade with no auth. The product is shared over a public link with a trusted network, with no login, deliberately. Each visitor gets a private document space keyed by an anonymous, long, random workspace id generated in the browser and sent on every request; the service tags documents and sheets with it on creation and scopes and verifies every read, list, export, events, and original by it, so one visitor cannot see another's documents even by id. This is isolation, not authentication: the id lives in the browser, so the protection rests on it being unguessable, which is the right level for a trusted person looking at public, non-proprietary research and not sufficient for real client documents. Because the endpoint is public, the hard backstops are a spend cap on the model key plus application rate limiting and a usage cap on the upload and extract endpoints. Authentication and the confidentiality work that goes with it return the moment real client M&A documents start flowing; that boundary is the line between this demo posture and a production one.
+
 ## 10. How phases work
 
 The build proceeds one phase at a time. The project owner provides each phase spec as a separate input. Every phase spec will contain, and Claude Code must treat as a contract, the following four parts:
