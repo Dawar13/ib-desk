@@ -21,9 +21,22 @@ import type {
   ApiErrorBody,
   SheetPayload,
 } from "@ib-desk/shared";
+import { getWorkspaceId } from "./workspace";
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+// Phase 5: every request carries the anonymous per-visitor workspace id so the
+// service can scope it to that visitor's private space. fetch() calls send it as
+// a header; the EventSource stream and the download anchors cannot set headers,
+// so those URL builders append it as the ws query parameter instead.
+const WORKSPACE_HEADER = "X-Workspace-Id";
+
+function workspaceHeaders(extra?: HeadersInit): Headers {
+  const headers = new Headers(extra);
+  headers.set(WORKSPACE_HEADER, getWorkspaceId());
+  return headers;
+}
 
 // Error subclass that carries the machine-readable ingestion code. The code is
 // optional because a failure may come from the network or a non-contract
@@ -57,7 +70,10 @@ async function throwFromResponse(res: Response): Promise<never> {
 }
 
 export async function listDocuments(): Promise<DocumentListItem[]> {
-  const res = await fetch(API_BASE + "/v1/documents", { cache: "no-store" });
+  const res = await fetch(API_BASE + "/v1/documents", {
+    cache: "no-store",
+    headers: workspaceHeaders(),
+  });
   if (!res.ok) {
     await throwFromResponse(res);
   }
@@ -67,6 +83,7 @@ export async function listDocuments(): Promise<DocumentListItem[]> {
 export async function getDocument(id: string): Promise<DocumentDetail> {
   const res = await fetch(API_BASE + "/v1/documents/" + id, {
     cache: "no-store",
+    headers: workspaceHeaders(),
   });
   if (!res.ok) {
     await throwFromResponse(res);
@@ -79,8 +96,10 @@ export async function createDocumentFile(
 ): Promise<CreateDocumentResponse> {
   const form = new FormData();
   form.append("file", file);
+  // Only the workspace header is set; fetch still sets the multipart boundary.
   const res = await fetch(API_BASE + "/v1/documents", {
     method: "POST",
+    headers: workspaceHeaders(),
     body: form,
   });
   if (!res.ok) {
@@ -95,7 +114,7 @@ export async function createDocumentPaste(
 ): Promise<CreateDocumentResponse> {
   const res = await fetch(API_BASE + "/v1/documents", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: workspaceHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify({ name, text }),
   });
   if (!res.ok) {
@@ -105,14 +124,23 @@ export async function createDocumentPaste(
 }
 
 export function originalUrl(id: string): string {
-  return API_BASE + "/v1/documents/" + id + "/original";
+  return (
+    API_BASE +
+    "/v1/documents/" +
+    id +
+    "/original?ws=" +
+    encodeURIComponent(getWorkspaceId())
+  );
 }
 
 // Fetch the populated sheet payload (sheet, sections, nested cells) for a sheet.
 // This is the canonical read path; the web app calls it once a done event arrives
 // on the extraction events stream.
 export async function getSheet(id: string): Promise<SheetPayload> {
-  const res = await fetch(API_BASE + "/v1/sheets/" + id, { cache: "no-store" });
+  const res = await fetch(API_BASE + "/v1/sheets/" + id, {
+    cache: "no-store",
+    headers: workspaceHeaders(),
+  });
   if (!res.ok) {
     await throwFromResponse(res);
   }
@@ -128,6 +156,7 @@ export async function triggerExtract(
 ): Promise<{ sheet_id: string; status: string }> {
   const res = await fetch(API_BASE + "/v1/sheets/" + sheetId + "/extract", {
     method: "POST",
+    headers: workspaceHeaders(),
   });
   if (!res.ok) {
     await throwFromResponse(res);
@@ -137,14 +166,30 @@ export async function triggerExtract(
 
 // The server-sent events URL for a sheet's extraction progress. Returned as a
 // plain string so the caller can hand it directly to the browser EventSource,
-// which performs its own GET rather than going through fetch.
+// which performs its own GET rather than going through fetch. The workspace id
+// rides as a query parameter, since EventSource cannot set a header.
 export function eventsUrl(sheetId: string): string {
-  return API_BASE + "/v1/sheets/" + sheetId + "/events";
+  return (
+    API_BASE +
+    "/v1/sheets/" +
+    sheetId +
+    "/events?ws=" +
+    encodeURIComponent(getWorkspaceId())
+  );
 }
 
 // The export URL for a sheet, returned as a plain string so a download control
 // can use it directly as an anchor href. The server sets Content-Disposition to
-// attachment, so the browser downloads the styled xlsx (default) or csv.
+// attachment, so the browser downloads the styled xlsx (default) or csv. The
+// workspace id rides as a query parameter, since an anchor cannot set a header.
 export function exportUrl(sheetId: string, format: "xlsx" | "csv" = "xlsx"): string {
-  return API_BASE + "/v1/sheets/" + sheetId + "/export?format=" + format;
+  return (
+    API_BASE +
+    "/v1/sheets/" +
+    sheetId +
+    "/export?format=" +
+    format +
+    "&ws=" +
+    encodeURIComponent(getWorkspaceId())
+  );
 }

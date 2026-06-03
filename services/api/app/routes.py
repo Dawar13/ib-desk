@@ -99,6 +99,38 @@ def _require_pool() -> Any:
     return pool
 
 
+# The anonymous per-visitor workspace id (Phase 5). fetch() requests send it in
+# the header; the events stream (EventSource) and the download anchors (export,
+# original) cannot set headers, so they send it as a query parameter, and the
+# service reads either. When neither is present the request falls back to the
+# default workspace, which keeps the seeded sample data and the Phase 0 to 4
+# tests working unchanged. This is isolation, not authentication: the id lives in
+# the browser, so the protection rests on it being long and random.
+_WORKSPACE_HEADER = "x-workspace-id"
+_WORKSPACE_QUERY = "ws"
+
+
+def _workspace_id(request: Request) -> str:
+    raw = request.headers.get(_WORKSPACE_HEADER) or request.query_params.get(_WORKSPACE_QUERY)
+    if raw is None or raw.strip() == "":
+        return get_settings().default_workspace_id
+    try:
+        return str(uuid.UUID(raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Invalid workspace id") from exc
+
+
+async def _sheet_belongs(pool: Any, sheet_id_str: str, workspace_id: str) -> bool:
+    """Whether a sheet exists and belongs to the workspace. Used to scope and
+    verify every sheet read, so one visitor cannot reach another's sheet by id."""
+    row = await pool.fetchrow(
+        "select 1 from sheets where id = $1::uuid and workspace_id = $2::uuid",
+        sheet_id_str,
+        workspace_id,
+    )
+    return row is not None
+
+
 def _document_list_item(record: Any) -> DocumentListItem:
     row = dict(record)
     return DocumentListItem(
@@ -235,6 +267,7 @@ async def _read_paste_body(request: Request) -> tuple[str, str]:
 
 async def _insert_document(
     *,
+    workspace_id: str,
     document_id: str,
     name: str,
     source_kind: str,
@@ -243,9 +276,12 @@ async def _insert_document(
     page_count: int | None,
     page_offsets: list[int],
 ) -> str:
-    """Insert the documents and sheets rows, returning the new sheet id."""
+    """Insert the documents and sheets rows, returning the new sheet id.
+
+    Both rows are tagged with the requesting workspace id, so the document and its
+    sheet are private to that visitor from the moment they are created.
+    """
     pool = _require_pool()
-    settings = get_settings()
     sheet_id = str(uuid.uuid4())
     async with pool.acquire() as conn:
         async with conn.transaction():
@@ -258,7 +294,7 @@ async def _insert_document(
                   ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
                 """,
                 document_id,
-                settings.default_workspace_id,
+                workspace_id,
                 name,
                 source_kind,
                 raw_text,
@@ -270,11 +306,12 @@ async def _insert_document(
             )
             await conn.execute(
                 """
-                insert into sheets (id, document_id, title, status)
-                values ($1::uuid, $2::uuid, $3, 'idle')
+                insert into sheets (id, document_id, workspace_id, title, status)
+                values ($1::uuid, $2::uuid, $3::uuid, $4, 'idle')
                 """,
                 sheet_id,
                 document_id,
+                workspace_id,
                 name,
             )
     return sheet_id
@@ -362,6 +399,7 @@ async def create_document(request: Request) -> CreateDocumentResponse:
     # both persist null rather than a fabricated number.
     page_count = result.page_count if source_kind == "upload_pdf" else None
     sheet_id = await _insert_document(
+        workspace_id=_workspace_id(request),
         document_id=document_id,
         name=name,
         source_kind=source_kind,
@@ -375,9 +413,8 @@ async def create_document(request: Request) -> CreateDocumentResponse:
 
 
 @router.get("/v1/documents", response_model=list[DocumentListItem])
-async def list_documents() -> list[DocumentListItem]:
+async def list_documents(request: Request) -> list[DocumentListItem]:
     pool = _require_pool()
-    settings = get_settings()
     rows = await pool.fetch(
         """
         select
@@ -394,14 +431,15 @@ async def list_documents() -> list[DocumentListItem]:
         where d.workspace_id = $1::uuid
         order by d.created_at desc
         """,
-        settings.default_workspace_id,
+        _workspace_id(request),
     )
     return [_document_list_item(row) for row in rows]
 
 
 @router.get("/v1/documents/{document_id}", response_model=DocumentDetail)
-async def get_document(document_id: uuid.UUID) -> DocumentDetail:
+async def get_document(document_id: uuid.UUID, request: Request) -> DocumentDetail:
     # FastAPI parses the path as a UUID, so a malformed id is a 422, not a 500.
+    # The workspace filter makes another visitor's document a 404, not a leak.
     pool = _require_pool()
     row = await pool.fetchrow(
         """
@@ -420,9 +458,10 @@ async def get_document(document_id: uuid.UUID) -> DocumentDetail:
             s.status as sheet_status
         from documents d
         left join sheets s on s.document_id = d.id
-        where d.id = $1::uuid
+        where d.id = $1::uuid and d.workspace_id = $2::uuid
         """,
         str(document_id),
+        _workspace_id(request),
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -430,12 +469,15 @@ async def get_document(document_id: uuid.UUID) -> DocumentDetail:
 
 
 @router.get("/v1/documents/{document_id}/original")
-async def get_document_original(document_id: uuid.UUID) -> Response:
+async def get_document_original(document_id: uuid.UUID, request: Request) -> Response:
     # FastAPI parses the path as a UUID, so a malformed id is a 422, not a 500.
+    # Scoped by workspace so a visitor cannot fetch another's original by id.
     pool = _require_pool()
     row = await pool.fetchrow(
-        "select source_kind, byte_path from documents where id = $1::uuid",
+        "select source_kind, byte_path from documents "
+        "where id = $1::uuid and workspace_id = $2::uuid",
         str(document_id),
+        _workspace_id(request),
     )
     if row is None or row["byte_path"] is None:
         raise HTTPException(status_code=404, detail="Original document not found")
@@ -498,24 +540,28 @@ async def _load_sheet_payload(pool: Any, sheet_id_str: str) -> SheetPayload | No
 
 
 @router.get("/v1/sheets/{sheet_id}", response_model=SheetPayload)
-async def get_sheet(sheet_id: uuid.UUID) -> SheetPayload:
-    # FastAPI parses the path as a UUID, returning 422 for a malformed id. A
-    # well-formed but absent id falls through to the 404 below rather than
-    # surfacing an asyncpg cast error as a 500.
+async def get_sheet(sheet_id: uuid.UUID, request: Request) -> SheetPayload:
+    # FastAPI parses the path as a UUID, returning 422 for a malformed id. The
+    # workspace check makes another visitor's sheet a 404 rather than a leak, and
+    # a well-formed but absent id is likewise a 404.
     pool = _require_pool()
-    payload = await _load_sheet_payload(pool, str(sheet_id))
+    sheet_id_str = str(sheet_id)
+    if not await _sheet_belongs(pool, sheet_id_str, _workspace_id(request)):
+        raise HTTPException(status_code=404, detail="Sheet not found")
+    payload = await _load_sheet_payload(pool, sheet_id_str)
     if payload is None:
         raise HTTPException(status_code=404, detail="Sheet not found")
     return payload
 
 
 @router.get("/v1/sheets/{sheet_id}/export")
-async def export_sheet(sheet_id: uuid.UUID, format: str = "xlsx") -> Response:
+async def export_sheet(sheet_id: uuid.UUID, request: Request, format: str = "xlsx") -> Response:
     """Export a sheet as a styled xlsx (default) or a flat csv.
 
     The export is computed from the stored sheet payload, so it needs no model
     call. xlsx is the primary, styled format with native charts and source
-    comments; csv is the secondary flat format. An unknown format is a 400.
+    comments; csv is the secondary flat format. An unknown format is a 400. The
+    sheet is scoped by workspace, so another visitor's sheet is a 404.
     """
     requested = format.lower()
     if requested not in ("xlsx", "csv"):
@@ -526,6 +572,8 @@ async def export_sheet(sheet_id: uuid.UUID, format: str = "xlsx") -> Response:
 
     pool = _require_pool()
     sheet_id_str = str(sheet_id)
+    if not await _sheet_belongs(pool, sheet_id_str, _workspace_id(request)):
+        raise HTTPException(status_code=404, detail="Sheet not found")
     payload = await _load_sheet_payload(pool, sheet_id_str)
     if payload is None:
         raise HTTPException(status_code=404, detail="Sheet not found")
@@ -568,17 +616,17 @@ async def export_sheet(sheet_id: uuid.UUID, format: str = "xlsx") -> Response:
 
 
 @router.post("/v1/sheets/{sheet_id}/extract", status_code=202)
-async def trigger_extract(sheet_id: uuid.UUID) -> dict[str, str]:
+async def trigger_extract(sheet_id: uuid.UUID, request: Request) -> dict[str, str]:
     """Start the extraction pipeline for a sheet and return immediately.
 
     Sets the sheet to extracting synchronously so the response reflects it, then
     runs the four-pass pipeline as a background task. Progress is observable on
-    the events stream and the sheet ends done or failed.
+    the events stream and the sheet ends done or failed. The sheet is scoped by
+    workspace, so a visitor can only extract their own sheet.
     """
     pool = _require_pool()
     sheet_id_str = str(sheet_id)
-    exists = await pool.fetchrow("select id from sheets where id = $1::uuid", sheet_id_str)
-    if exists is None:
+    if not await _sheet_belongs(pool, sheet_id_str, _workspace_id(request)):
         raise HTTPException(status_code=404, detail="Sheet not found")
 
     await pool.execute(
@@ -593,14 +641,18 @@ async def trigger_extract(sheet_id: uuid.UUID) -> dict[str, str]:
 
 
 @router.get("/v1/sheets/{sheet_id}/events")
-async def stream_events(sheet_id: uuid.UUID) -> StreamingResponse:
+async def stream_events(sheet_id: uuid.UUID, request: Request) -> StreamingResponse:
     """Stream the sheet's extraction_events as server-sent events.
 
     Polls for new events and yields each as an SSE data frame, stopping after a
-    terminal event (done or error) or a bounded number of polls.
+    terminal event (done or error) or a bounded number of polls. The sheet is
+    scoped by workspace (sent as the ws query parameter, since EventSource cannot
+    set a header), so a visitor can only watch their own sheet.
     """
     pool = _require_pool()
     sheet_id_str = str(sheet_id)
+    if not await _sheet_belongs(pool, sheet_id_str, _workspace_id(request)):
+        raise HTTPException(status_code=404, detail="Sheet not found")
 
     async def generate() -> AsyncIterator[str]:
         seen: set[str] = set()
