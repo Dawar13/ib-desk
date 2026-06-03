@@ -23,9 +23,25 @@ from app.routes import router
 logger = logging.getLogger(__name__)
 
 
+def _configure_logging(level: str) -> None:
+    """Configure structured-ish logging to stdout once, for platform capture.
+
+    A timestamped, leveled, named format so a pipeline failure or a request error
+    is legible in the platform logs after the fact. force=True so it takes effect
+    even if a dependency configured the root logger first.
+    """
+    logging.basicConfig(
+        level=getattr(logging, level.upper(), logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        force=True,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
+    _configure_logging(settings.log_level)
+    logger.info("ib-desk-api starting (version %s)", settings.app_version)
     if settings.database_url:
         try:
             await db.open_pool(

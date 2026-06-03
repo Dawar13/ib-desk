@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     web_origin: str = "http://localhost:3000"
     service_name: str = "ib-desk-api"
     app_version: str = "0.1.0"
+    # Logging level for the service (Phase 5 observability). Logs go to stdout,
+    # which the platform (Render) captures, so a failure for the person you shared
+    # with is visible after the fact.
+    log_level: str = "INFO"
 
     # Default workspace id, carried over from Phase 0 until real auth arrives.
     default_workspace_id: str = "00000000-0000-0000-0000-000000000001"
@@ -74,13 +78,15 @@ class Settings(BaseSettings):
     # this character count is too large for a single model pass; it is handled by
     # chunk-and-merge rather than truncated. A safe budget for the 20 to 40 page
     # research documents in scope, below typical model context limits. Chunks
-    # overlap so a boundary sentence still appears whole in one chunk, and the
-    # number of chunks is capped so a runaway document cannot fan out unbounded
-    # model calls; beyond the cap the leading portion is processed and the
-    # truncation is reported, never silent.
+    # overlap so a boundary sentence still appears whole in one chunk. The chunk
+    # cap is a safety backstop against a pathological input rather than a cost
+    # control: it is set high so ordinary large documents are processed in full,
+    # and only a truly enormous input is truncated, which is then reported as an
+    # event, never silent. At this budget the cap covers documents into the
+    # millions of characters (thousands of pages).
     single_pass_char_budget: int = 120_000
     chunk_overlap_chars: int = 2_000
-    max_chunks: int = 8
+    max_chunks: int = 50
 
 
 @lru_cache

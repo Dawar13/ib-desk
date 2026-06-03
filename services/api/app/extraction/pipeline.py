@@ -16,6 +16,7 @@ written to extraction_events and token usage recorded as telemetry.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from app.config import Settings
@@ -40,6 +41,8 @@ from app.extraction.schemas import (
     ExtractionResult,
     VerificationResult,
 )
+
+logger = logging.getLogger(__name__)
 
 _TRANSIENT = {
     "RateLimitError",
@@ -166,6 +169,7 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
     usages: list[Usage] = []
     try:
         await set_status(pool, sheet_id, "extracting")
+        logger.info("extraction started for sheet %s", sheet_id)
 
         # Pass 1: discovery.
         await write_event(pool, sheet_id, "discovery", "discovery started")
@@ -300,6 +304,7 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
                         cells=cells,
                     )
                 except Exception as exc:  # noqa: BLE001 - isolate one section's failure
+                    logger.exception("section %s failed for sheet %s", section.key, sheet_id)
                     await write_event(
                         pool,
                         sheet_id,
@@ -335,6 +340,12 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
                 except Exception as exc:  # noqa: BLE001 - a verification failure must
                     # not invent trust; drop the section's values rather than keep
                     # them unverified, and record the failure.
+                    logger.warning(
+                        "verification for %s failed for sheet %s: %s",
+                        section.key,
+                        sheet_id,
+                        exc,
+                    )
                     await write_event(
                         pool,
                         sheet_id,
@@ -370,6 +381,13 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
                 "completion_tokens": total_completion,
             },
         )
+        logger.info(
+            "extraction complete for sheet %s: %d sections, %d fields",
+            sheet_id,
+            len(sections),
+            field_count,
+        )
     except Exception as exc:  # noqa: BLE001 - any pipeline failure marks the sheet failed
+        logger.exception("extraction pipeline failed for sheet %s", sheet_id)
         await write_event(pool, sheet_id, "error", f"pipeline failed: {exc}")
         await set_status(pool, sheet_id, "failed")
