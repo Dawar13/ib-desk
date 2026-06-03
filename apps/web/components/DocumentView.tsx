@@ -135,6 +135,7 @@ export default function DocumentView({ documentId }: DocumentViewProps) {
           docName={detail.name}
           docType={detail.doc_type}
           primaryTopic={detail.primary_topic}
+          documentText={detail.raw_text}
           idleContent={parsedPreview}
         />
       ) : (

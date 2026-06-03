@@ -141,3 +141,10 @@ export async function triggerExtract(
 export function eventsUrl(sheetId: string): string {
   return API_BASE + "/v1/sheets/" + sheetId + "/events";
 }
+
+// The export URL for a sheet, returned as a plain string so a download control
+// can use it directly as an anchor href. The server sets Content-Disposition to
+// attachment, so the browser downloads the styled xlsx (default) or csv.
+export function exportUrl(sheetId: string, format: "xlsx" | "csv" = "xlsx"): string {
+  return API_BASE + "/v1/sheets/" + sheetId + "/export?format=" + format;
+}

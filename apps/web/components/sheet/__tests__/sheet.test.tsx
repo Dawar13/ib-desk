@@ -11,9 +11,11 @@ import {
   allHintsSheet,
   confidenceSheet,
   emptySheet,
+  EVIDENCE_DOC_TEXT,
   invalidBreakdownSheet,
   invalidChartSheet,
   marketSheet,
+  spanSheet,
   sparseTableSheet,
 } from "@/components/sheet/fixtures";
 
@@ -191,6 +193,50 @@ describe("click-to-evidence", () => {
     expect(
       screen.queryByText(/Northwind was founded in 2016 in Rotterdam/),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("in-document evidence highlight", () => {
+  function renderWithText() {
+    return render(
+      <Sheet
+        subject="Northwind"
+        docType={null}
+        sections={spanSheet.sections}
+        fieldCount={spanSheet.sheet.field_count}
+        documentText={EVIDENCE_DOC_TEXT}
+      />,
+    );
+  }
+
+  it("highlights the value's span inside the document preview on click", async () => {
+    const user = userEvent.setup();
+    renderWithText();
+
+    await user.click(screen.getByRole("button", { name: /2016/ }));
+    const dialog = screen.getByRole("dialog", { name: "Source evidence" });
+
+    // The span is highlighted at the right place, in context, not just echoed.
+    const mark = dialog.querySelector('[data-evidence-highlight="true"]');
+    expect(mark).not.toBeNull();
+    expect(mark).toHaveTextContent("2016");
+    const preview = dialog.querySelector('[data-document-preview="true"]');
+    expect(preview?.textContent).toContain("Rotterdam");
+  });
+
+  it("degrades to the sentence, without breaking, when a span cannot resolve", async () => {
+    const user = userEvent.setup();
+    renderWithText();
+
+    await user.click(screen.getByRole("button", { name: /Rotterdam/ }));
+    const dialog = screen.getByRole("dialog", { name: "Source evidence" });
+
+    // No highlight, a graceful fallback note, and the stored sentence still shown.
+    expect(dialog.querySelector('[data-evidence-highlight="true"]')).toBeNull();
+    expect(dialog.querySelector('[data-preview-fallback="true"]')).not.toBeNull();
+    expect(
+      within(dialog).getByText(/Its headquarters is in Rotterdam/),
+    ).toBeInTheDocument();
   });
 });
 

@@ -17,6 +17,7 @@ import {
   type EventFrameInput,
   type RevealState,
 } from "@/lib/sheet/reveal";
+import DownloadControls from "./DownloadControls";
 import RevealView from "./RevealView";
 import Sheet from "./Sheet";
 import {
@@ -34,6 +35,9 @@ interface SheetWorkspaceProps {
   docName: string;
   docType: DocType | null;
   primaryTopic: string | null;
+  // The canonical document text, passed to the finished sheet so the evidence
+  // drawer can highlight a value's span in context.
+  documentText?: string | null;
   // Shown in the idle state before the sheet is built (the parsed-text preview),
   // so a freshly ingested document is still useful and the extract action is one
   // click away. Falls back to a plain empty state when not provided.
@@ -58,6 +62,7 @@ export default function SheetWorkspace({
   docName,
   docType,
   primaryTopic,
+  documentText,
   idleContent,
 }: SheetWorkspaceProps) {
   const [phase, setPhase] = useState<Phase>("idle");
@@ -288,19 +293,22 @@ export default function SheetWorkspace({
         <span className="text-xs font-medium uppercase tracking-wide text-muted">
           Sheet
         </span>
-        <button
-          type="button"
-          onClick={() => void onExtract()}
-          disabled={!canExtract}
-          className={cx(
-            "px-3 py-1 text-sm font-medium transition-colors",
-            canExtract
-              ? "bg-ink text-paper hover:bg-ink/90"
-              : "cursor-not-allowed bg-line text-faint",
-          )}
-        >
-          {buttonLabel}
-        </button>
+        <div className="flex items-center gap-2">
+          <DownloadControls sheetId={sheetId} disabled={phase !== "done"} />
+          <button
+            type="button"
+            onClick={() => void onExtract()}
+            disabled={!canExtract}
+            className={cx(
+              "px-3 py-1 text-sm font-medium transition-colors",
+              canExtract
+                ? "bg-ink text-paper hover:bg-ink/90"
+                : "cursor-not-allowed bg-line text-faint",
+            )}
+          >
+            {buttonLabel}
+          </button>
+        </div>
       </div>
 
       <div>
@@ -330,6 +338,7 @@ export default function SheetWorkspace({
             docType={resolvedDocType}
             sections={payload.sections}
             fieldCount={payload.sheet.field_count}
+            documentText={documentText}
           />
         ) : (
           <LoadingState />

@@ -366,3 +366,45 @@ export const sparseTableSheet: SheetPayload = payload([
 
 // An empty sheet (no grounded sections), for the empty-state gate.
 export const emptySheet: SheetPayload = payload([]);
+
+// Canonical document text plus a sheet whose cells carry real character spans
+// into it, for the in-document evidence-highlight gate. The offsets are computed
+// with indexOf so they stay correct by construction, mirroring the
+// service-computed spans from grounding. The second cell deliberately has no
+// span, to exercise the graceful fallback.
+export const EVIDENCE_DOC_TEXT =
+  "SAMPLE document. Northwind was founded in 2016 in Rotterdam. It serves clients (sample).";
+
+const FOUNDED_AT = EVIDENCE_DOC_TEXT.indexOf("2016");
+
+export const spanSheet: SheetPayload = payload([
+  section({
+    key: "overview",
+    label: "Overview",
+    kind: "scalar",
+    render_hint: "keyvalue",
+    category: "Overview",
+    cells: [
+      cell({
+        col_key: "Founded",
+        value_raw: "2016",
+        value_norm: "2016",
+        confidence: 0.95,
+        char_start: FOUNDED_AT,
+        char_end: FOUNDED_AT + "2016".length,
+        source_snippet: "SAMPLE: Northwind was founded in 2016 in Rotterdam.",
+      }),
+      cell({
+        col_key: "Headquarters",
+        value_raw: "Rotterdam",
+        value_norm: "Rotterdam",
+        confidence: 0.82,
+        row_idx: 1,
+        // No span: the in-document highlight must degrade gracefully.
+        char_start: null,
+        char_end: null,
+        source_snippet: "SAMPLE: Its headquarters is in Rotterdam.",
+      }),
+    ],
+  }),
+]);

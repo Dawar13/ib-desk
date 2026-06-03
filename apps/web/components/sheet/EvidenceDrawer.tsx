@@ -1,24 +1,28 @@
 "use client";
 
 // The click-to-evidence drawer. Slides in from the right and shows the clicked
-// value, the section and field it belongs to, its confidence, and the exact
-// stored source sentence the value was grounded to. This is the trust layer made
-// visible: the banker verifies a value by eye against its source. Highlighting
-// the sentence inside the full original document is a later phase; here the
-// stored sentence is shown directly.
+// value, the section and field it belongs to, its confidence, the exact stored
+// source sentence the value was grounded to, and, in Phase 4, that sentence
+// highlighted in a preview of the canonical document text. This is the trust
+// layer made visible: the banker verifies a value by eye against its source, and
+// sees exactly where in the document it came from.
 
 import { useEffect, useRef } from "react";
 import { cx } from "@/lib/cx";
 import { confidenceStyle } from "@/lib/sheet/confidence";
 import { cellDisplayValue, cellFieldLabel } from "@/lib/sheet/value";
+import DocumentPreview from "./DocumentPreview";
 import type { EvidenceTarget } from "./types";
 
 interface EvidenceDrawerProps {
   target: EvidenceTarget | null;
   onClose: () => void;
+  // The canonical document text, so the drawer can highlight the value's span in
+  // context. Optional: when absent the drawer still shows the stored sentence.
+  documentText?: string | null;
 }
 
-export default function EvidenceDrawer({ target, onClose }: EvidenceDrawerProps) {
+export default function EvidenceDrawer({ target, onClose, documentText }: EvidenceDrawerProps) {
   const open = target !== null;
   const dialogRef = useRef<HTMLElement>(null);
 
@@ -63,11 +67,13 @@ export default function EvidenceDrawer({ target, onClose }: EvidenceDrawerProps)
         aria-hidden={!open}
         tabIndex={-1}
         className={cx(
-          "fixed right-0 top-0 z-40 flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-2xl transition-transform duration-300",
+          "fixed right-0 top-0 z-40 flex h-full w-full max-w-xl flex-col border-l border-line bg-surface shadow-2xl transition-transform duration-300",
           open ? "translate-x-0" : "translate-x-full",
         )}
       >
-        {target ? <EvidenceContent target={target} onClose={onClose} /> : null}
+        {target ? (
+          <EvidenceContent target={target} onClose={onClose} documentText={documentText} />
+        ) : null}
       </aside>
     </>
   );
@@ -76,9 +82,11 @@ export default function EvidenceDrawer({ target, onClose }: EvidenceDrawerProps)
 function EvidenceContent({
   target,
   onClose,
+  documentText,
 }: {
   target: EvidenceTarget;
   onClose: () => void;
+  documentText?: string | null;
 }) {
   const { cell, section } = target;
   const style = confidenceStyle(cell.confidence);
@@ -164,6 +172,19 @@ function EvidenceContent({
             <p className="mt-2 text-xs text-faint">
               The exact sentence this value was grounded to in the source document.
             </p>
+          </div>
+
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-faint">
+              In the document
+            </dt>
+            <dd className="mt-1">
+              <DocumentPreview
+                text={documentText}
+                charStart={cell.char_start}
+                charEnd={cell.char_end}
+              />
+            </dd>
           </div>
         </dl>
       </div>

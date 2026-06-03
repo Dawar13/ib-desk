@@ -17,6 +17,8 @@ vi.mock("@/lib/api", () => ({
   triggerExtract: api.triggerExtract,
   getSheet: api.getSheet,
   eventsUrl: () => "http://localhost/events",
+  exportUrl: (sheetId: string, format = "xlsx") =>
+    `http://localhost/v1/sheets/${sheetId}/export?format=${format}`,
 }));
 
 import RevealView from "@/components/sheet/RevealView";

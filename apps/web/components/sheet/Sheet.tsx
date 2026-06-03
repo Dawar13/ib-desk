@@ -19,6 +19,9 @@ interface SheetProps {
   docType: DocType | null;
   sections: SectionWithCells[];
   fieldCount: number;
+  // The canonical document text, so the evidence drawer can highlight a value's
+  // span in context. Optional: the drawer degrades to the stored sentence alone.
+  documentText?: string | null;
 }
 
 export default function Sheet({
@@ -26,6 +29,7 @@ export default function Sheet({
   docType,
   sections,
   fieldCount,
+  documentText,
 }: SheetProps) {
   const [evidence, setEvidence] = useState<EvidenceTarget | null>(null);
   const closeEvidence = useCallback(() => setEvidence(null), []);
@@ -57,7 +61,11 @@ export default function Sheet({
         )}
       </div>
       <SheetTab subject={subject} />
-      <EvidenceDrawer target={evidence} onClose={closeEvidence} />
+      <EvidenceDrawer
+        target={evidence}
+        onClose={closeEvidence}
+        documentText={documentText}
+      />
     </div>
   );
 }
