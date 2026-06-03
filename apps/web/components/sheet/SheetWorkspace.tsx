@@ -205,7 +205,10 @@ export default function SheetWorkspace({
   }, [running, sheetId]);
 
   // Polling fallback. When the stream is lost mid-run, poll the sheet until it
-  // reaches a terminal status, then settle. Bounded so it cannot poll forever.
+  // reaches a terminal status, then settle. Bounded so it cannot poll forever,
+  // but the bound is generous (about 20 minutes) so a legitimately long
+  // large-document chunk-and-merge extraction is never shown as a false failure
+  // while the server is still working. The reveal completes by stream or by poll.
   useEffect(() => {
     if (!polling) {
       return;
@@ -239,7 +242,7 @@ export default function SheetWorkspace({
       if (!active) {
         return;
       }
-      if (attempts >= 120) {
+      if (attempts >= 400) {
         setError(
           "The extraction is taking longer than expected. Use Re-extract or refresh.",
         );

@@ -61,11 +61,14 @@ export default function Home() {
         {selectedId ? (
           <DocumentView key={selectedId} documentId={selectedId} />
         ) : (
-          <div className="flex min-h-[50vh] items-center justify-center p-6 text-center text-muted">
-            <p>
-              Select a document from the list, or add one above, to build and
-              view its sheet.
-            </p>
+          <div className="flex min-h-[50vh] items-center justify-center p-6 text-center">
+            <div className="max-w-md">
+              <h2 className="font-serif text-xl text-ink">Your private desk</h2>
+              <p className="mt-2 text-sm text-muted">
+                Add a document above to build its sheet, or pick one from the
+                list. The documents you add here are private to this browser.
+              </p>
+            </div>
           </div>
         )}
       </div>

@@ -105,15 +105,17 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
   return (
     <section
       aria-label="Add a document"
-      className="border-b border-gray-200 bg-white p-6"
+      className="border-b border-line bg-surface p-6"
     >
-      <h2 className="text-lg font-semibold text-gray-900">Add a document</h2>
+      <h2 className="font-serif text-lg text-ink">Add a document</h2>
+      <p className="mt-1 text-sm text-muted">
+        Drop in a research document about anything, a company, a market, a person,
+        or a deal, and get back a grounded, structured sheet.
+      </p>
 
       <div className="mt-4 grid gap-6 md:grid-cols-2">
         <div>
-          <p className="mb-2 text-sm font-medium text-gray-700">
-            Upload a file
-          </p>
+          <p className="mb-2 text-sm font-medium text-muted">Upload a file</p>
           <div
             role="button"
             tabIndex={0}
@@ -137,14 +139,14 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
             className={
               "flex h-40 cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed px-4 text-center text-sm transition-colors " +
               (dragActive
-                ? "border-blue-500 bg-blue-50 text-blue-700"
-                : "border-gray-300 bg-gray-50 text-gray-600 hover:border-gray-400")
+                ? "border-ink bg-paper text-ink"
+                : "border-line bg-paper text-muted hover:border-ink/40")
             }
           >
             <span className="font-medium">
               Drag a file here, or click to choose
             </span>
-            <span className="mt-1 text-xs text-gray-500">
+            <span className="mt-1 text-xs text-faint">
               PDF or DOCX, text-based
             </span>
           </div>
@@ -160,7 +162,7 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
         </div>
 
         <div>
-          <p className="mb-2 text-sm font-medium text-gray-700">Paste text</p>
+          <p className="mb-2 text-sm font-medium text-muted">Paste text</p>
           <label className="block">
             <span className="sr-only">Document name</span>
             <input
@@ -170,7 +172,7 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
               placeholder="Document name"
               aria-label="Document name"
               disabled={busy}
-              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+              className="block w-full rounded-md border border-line px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-ink focus:outline-none focus:ring-1 focus:ring-ink/30 disabled:bg-paper"
             />
           </label>
           <label className="mt-2 block">
@@ -182,14 +184,14 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
               aria-label="Pasted text"
               rows={4}
               disabled={busy}
-              className="block w-full resize-y rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+              className="block w-full resize-y rounded-md border border-line px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-ink focus:outline-none focus:ring-1 focus:ring-ink/30 disabled:bg-paper"
             />
           </label>
           <button
             type="button"
             onClick={() => void submitPaste()}
             disabled={!canSubmitPaste}
-            className="mt-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+            className="mt-2 rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-colors hover:bg-ink/90 disabled:cursor-not-allowed disabled:bg-line disabled:text-faint"
           >
             Add pasted text
           </button>
@@ -197,13 +199,13 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
       </div>
 
       {busy ? (
-        <p className="mt-4 text-sm text-gray-600" role="status">
+        <p className="mt-4 text-sm text-muted" role="status">
           Uploading and parsing the document
         </p>
       ) : null}
 
       {error ? (
-        <p className="mt-4 text-sm text-red-700" role="alert">
+        <p className="mt-4 text-sm" style={{ color: "#b4503e" }} role="alert">
           {error}
         </p>
       ) : null}
