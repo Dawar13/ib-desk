@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -37,6 +38,7 @@ from starlette.datastructures import UploadFile
 
 from app import db
 from app.config import get_settings
+from app.export import build_csv, build_xlsx
 from app.extraction.pipeline import run_extraction
 from app.extraction.prompts import EXTRACTION_PROMPT_VERSION
 from app.models import (
@@ -64,6 +66,17 @@ _EXTRACTION_TASKS: set[asyncio.Task[None]] = set()
 _PDF_MIME = "application/pdf"
 _DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _TEXT_MIME = "text/plain; charset=utf-8"
+
+# Export content types and the filename sanitizer for the download.
+_XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_CSV_MIME = "text/csv; charset=utf-8"
+_FILENAME_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _safe_filename(name: str) -> str:
+    cleaned = _FILENAME_UNSAFE.sub("_", name).strip("_")
+    return cleaned or "sheet"
+
 
 # Maps a stored document's source kind to the content type used when streaming the
 # original bytes back from object storage.
@@ -437,21 +450,18 @@ async def get_document_original(document_id: uuid.UUID) -> Response:
     return Response(content=data, media_type=content_type)
 
 
-@router.get("/v1/sheets/{sheet_id}", response_model=SheetPayload)
-async def get_sheet(sheet_id: uuid.UUID) -> SheetPayload:
-    # FastAPI parses the path as a UUID, returning 422 for a malformed id. A
-    # well-formed but absent id falls through to the 404 below rather than
-    # surfacing an asyncpg cast error as a 500.
-    pool = _require_pool()
+async def _load_sheet_payload(pool: Any, sheet_id_str: str) -> SheetPayload | None:
+    """Assemble the full sheet payload (sheet, sections, nested cells), or None.
 
-    sheet_id_str = str(sheet_id)
-
+    Shared by the read path and the export path so both see exactly the same
+    sections and grounded cells, in the same order.
+    """
     sheet_row = await pool.fetchrow(
         "select * from sheets where id = $1::uuid",
         sheet_id_str,
     )
     if sheet_row is None:
-        raise HTTPException(status_code=404, detail="Sheet not found")
+        return None
 
     section_rows = await pool.fetch(
         "select * from sections where sheet_id = $1::uuid order by sort",
@@ -485,6 +495,76 @@ async def get_sheet(sheet_id: uuid.UUID) -> SheetPayload:
     ]
 
     return SheetPayload(sheet=_sheet(sheet_row), sections=sections)
+
+
+@router.get("/v1/sheets/{sheet_id}", response_model=SheetPayload)
+async def get_sheet(sheet_id: uuid.UUID) -> SheetPayload:
+    # FastAPI parses the path as a UUID, returning 422 for a malformed id. A
+    # well-formed but absent id falls through to the 404 below rather than
+    # surfacing an asyncpg cast error as a 500.
+    pool = _require_pool()
+    payload = await _load_sheet_payload(pool, str(sheet_id))
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Sheet not found")
+    return payload
+
+
+@router.get("/v1/sheets/{sheet_id}/export")
+async def export_sheet(sheet_id: uuid.UUID, format: str = "xlsx") -> Response:
+    """Export a sheet as a styled xlsx (default) or a flat csv.
+
+    The export is computed from the stored sheet payload, so it needs no model
+    call. xlsx is the primary, styled format with native charts and source
+    comments; csv is the secondary flat format. An unknown format is a 400.
+    """
+    requested = format.lower()
+    if requested not in ("xlsx", "csv"):
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported export format. Use xlsx or csv.",
+        )
+
+    pool = _require_pool()
+    sheet_id_str = str(sheet_id)
+    payload = await _load_sheet_payload(pool, sheet_id_str)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Sheet not found")
+
+    # The document fields drive the title block. They are always available even
+    # when discovery did not classify, so the export never fabricates a subject.
+    doc_row = await pool.fetchrow(
+        """
+        select d.name, d.doc_type, d.primary_topic
+        from documents d
+        join sheets s on s.document_id = d.id
+        where s.id = $1::uuid
+        """,
+        sheet_id_str,
+    )
+    doc_name = doc_row["name"] if doc_row is not None else payload.sheet.title
+    doc_type = doc_row["doc_type"] if doc_row is not None else None
+    primary_topic = doc_row["primary_topic"] if doc_row is not None else None
+
+    filename_base = _safe_filename(payload.sheet.title or doc_name or "sheet")
+    if requested == "csv":
+        body = build_csv(payload)
+        media_type = _CSV_MIME
+        filename = f"{filename_base}.csv"
+    else:
+        body = build_xlsx(
+            payload,
+            doc_name=doc_name,
+            doc_type=doc_type,
+            primary_topic=primary_topic,
+        )
+        media_type = _XLSX_MIME
+        filename = f"{filename_base}.xlsx"
+
+    return Response(
+        content=body,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/v1/sheets/{sheet_id}/extract", status_code=202)
