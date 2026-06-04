@@ -11,7 +11,7 @@
 // table view and the safe fallback for chart-hinted sections.
 
 import { tableColumns, tableRows } from "@/lib/sheet/table";
-import { numericValue, NO_VALUE } from "@/lib/sheet/value";
+import { NO_VALUE, valueVariant } from "@/lib/sheet/value";
 import { EvidenceValue, SectionEmpty } from "../primitives";
 import type { RendererProps } from "../types";
 
@@ -52,7 +52,7 @@ export default function SectionTable({ section, onEvidence }: RendererProps) {
                       <EvidenceValue
                         target={{ cell, section }}
                         onEvidence={onEvidence}
-                        variant={numericValue(cell) !== null ? "mono" : "plain"}
+                        variant={valueVariant(cell)}
                         className="flex w-full max-w-[26rem] items-start gap-1.5 px-2 py-1 text-left hover:bg-ink/[0.05]"
                       />
                     ) : (

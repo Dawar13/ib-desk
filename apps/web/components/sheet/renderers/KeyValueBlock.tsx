@@ -12,7 +12,7 @@
 //     wasting a full row on a meaningless label. We never fabricate a label.
 // Numeric values render monospace; text values plain.
 
-import { cellFieldLabel, numericValue } from "@/lib/sheet/value";
+import { cellFieldLabel, valueVariant } from "@/lib/sheet/value";
 import { EvidenceValue, SectionEmpty } from "../primitives";
 import type { RendererProps } from "../types";
 
@@ -35,7 +35,7 @@ export default function KeyValueBlock({ section, onEvidence }: RendererProps) {
             <EvidenceValue
               target={{ cell, section }}
               onEvidence={onEvidence}
-              variant={numericValue(cell) !== null ? "mono" : "plain"}
+              variant={valueVariant(cell)}
               className="inline-flex items-center gap-1.5 border border-line bg-paper px-2 py-0.5 hover:bg-ink/[0.05]"
             />
           </li>
@@ -58,7 +58,7 @@ export default function KeyValueBlock({ section, onEvidence }: RendererProps) {
             <EvidenceValue
               target={{ cell, section }}
               onEvidence={onEvidence}
-              variant={numericValue(cell) !== null ? "mono" : "plain"}
+              variant={valueVariant(cell)}
               className="inline-flex items-center gap-1.5 px-1 py-0.5 hover:bg-ink/[0.04]"
             />
           </dd>

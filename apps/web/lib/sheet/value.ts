@@ -29,6 +29,19 @@ export function numericValue(cell: Cell): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+// The typographic variant for a value. Monospace only for short, genuinely
+// numeric values (a number, currency, percent, year), so long descriptive text
+// stays in the regular font and the sheet reads uniformly instead of switching
+// fonts wherever a sentence happens to contain a number.
+const MONO_MAX_LENGTH = 16;
+
+export function valueVariant(cell: Cell): "mono" | "plain" {
+  if (numericValue(cell) === null) {
+    return "plain";
+  }
+  return cellDisplayValue(cell).length <= MONO_MAX_LENGTH ? "mono" : "plain";
+}
+
 // The field label for a cell, used in tables and the evidence drawer. Prefers
 // the column key; falls back to the row position. Never invents a name.
 export function cellFieldLabel(cell: Cell): string {
