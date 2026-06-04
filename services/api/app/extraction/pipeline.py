@@ -1,13 +1,15 @@
 """The four-pass extraction pipeline.
 
 Pass 1 discovery: one call over the canonical text proposing the schema.
-Pass 2 extraction: one call per section, in parallel with a concurrency limit,
-  exponential backoff on transient errors, and per-section error isolation so one
-  failing section does not halt the sheet. Each value is then grounded by search
-  (its quoted sentence located in the canonical text, ungrounded values dropped)
-  and normalized deterministically.
-Pass 3 verification: each value is checked against its quoted sentence and any the
-  model marks unsupported are removed.
+Pass 2 extraction: one call returns every section, so the document is sent once
+  rather than once per section (the dominant cost). A document too large for one
+  pass is split into ordered overlapping chunks and each chunk is one such call,
+  with exponential backoff on transient errors and per-chunk error isolation so one
+  failing chunk does not halt the sheet. Each value is then grounded by search (its
+  quoted sentence located in the canonical text, ungrounded values dropped) and
+  normalized deterministically, and multi-chunk results are merged per section.
+Pass 3 verification: one call checks every value against its quoted sentence and
+  any the model marks unsupported are removed.
 Pass 4 render typing: each section is typed with the chart rule.
 The result replaces the sheet's sections and cells atomically, with progress
 written to extraction_events and token usage recorded as telemetry.
@@ -39,6 +41,7 @@ from app.extraction.schemas import (
     DiscoveryResult,
     DiscoverySection,
     ExtractionResult,
+    ExtractionRow,
     VerificationResult,
 )
 
@@ -108,10 +111,18 @@ def _section_definition(section: DiscoverySection) -> str:
     return "\n".join(parts)
 
 
-def _ground_and_normalize(raw_text: str, extraction: ExtractionResult) -> list[ResolvedCell]:
+def _sections_block(sections: list[DiscoverySection]) -> str:
+    """Render every section definition into one block for the single extraction call."""
+    return "\n\n".join(
+        f"--- section {i + 1} ---\n{_section_definition(section)}"
+        for i, section in enumerate(sections)
+    )
+
+
+def _ground_and_normalize(raw_text: str, rows: list[ExtractionRow]) -> list[ResolvedCell]:
     """Locate each value's quoted sentence, drop the ungrounded, and normalize."""
     resolved: list[ResolvedCell] = []
-    for row in extraction.rows:
+    for row in rows:
         for cell in row.cells:
             span = grounding.find_span(raw_text, cell.source_snippet)
             if span is None:
@@ -135,32 +146,42 @@ def _ground_and_normalize(raw_text: str, extraction: ExtractionResult) -> list[R
     return resolved
 
 
-def _values_block(cells: list[ResolvedCell]) -> str:
+def _all_values_block(sections: list[ResolvedSection]) -> str:
+    """Render every value across all sections for the single verification call.
+
+    Each line carries the section key alongside the row index and column key, so a
+    verdict maps back to exactly one value.
+    """
     lines = []
-    for cell in cells:
-        col = cell.col_key if cell.col_key is not None else "(value)"
-        lines.append(
-            f"row {cell.row_idx} | col {col} | value: {cell.value_raw} | "
-            f"quote: {cell.source_snippet}"
-        )
+    for section in sections:
+        for cell in section.cells:
+            col = cell.col_key if cell.col_key is not None else "(value)"
+            lines.append(
+                f"section {section.key} | row {cell.row_idx} | col {col} | "
+                f"value: {cell.value_raw} | quote: {cell.source_snippet}"
+            )
     return "\n".join(lines)
 
 
-def _drop_unsupported(
-    cells: list[ResolvedCell], verification: VerificationResult
-) -> list[ResolvedCell]:
+def _apply_verdicts(sections: list[ResolvedSection], verification: VerificationResult) -> None:
     """Remove only the values verification explicitly marked unsupported.
 
     Grounding already guarantees every value's quote exists in the document, so a
     value that the verification model does not address survives, but anything it
-    flags as not genuinely supported is removed.
+    flags as not genuinely supported is removed. Verdicts are matched by section
+    key, row index, and column key.
     """
     rejected = {
-        (verdict.row_idx, verdict.col_key)
+        (verdict.section_key, verdict.row_idx, verdict.col_key)
         for verdict in verification.verdicts
         if not verdict.supported
     }
-    return [cell for cell in cells if (cell.row_idx, cell.col_key) not in rejected]
+    for section in sections:
+        section.cells = [
+            cell
+            for cell in section.cells
+            if (section.key, cell.row_idx, cell.col_key) not in rejected
+        ]
 
 
 def _dedupe_across_sections(sections: list[ResolvedSection]) -> int:
@@ -255,7 +276,14 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
                     {"truncated": True},
                 )
 
-        # Pass 2: extraction (parallel, error-isolated), then ground and normalize.
+        # Pass 2: extraction. One call per chunk returns every section, so the
+        # document is sent once instead of once per section, which is the dominant
+        # extraction cost and also cuts the call count and the latency. Each value
+        # is grounded against the full canonical text and normalized; for a
+        # multi-chunk document the per-chunk results are merged per section. Error
+        # isolation is per chunk: a chunk that fails after retries is skipped and
+        # reported and the run proceeds on the chunks that succeeded; only if every
+        # chunk fails does the run fail.
         await write_event(
             pool,
             sheet_id,
@@ -263,86 +291,80 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
             "extraction started",
             {"section_count": len(discovery.sections)},
         )
-        semaphore = asyncio.Semaphore(settings.extraction_concurrency)
+        sections_block = _sections_block(discovery.sections)
+        per_section_chunks: dict[str, list[list[ResolvedCell]]] = {
+            disc.key: [] for disc in discovery.sections
+        }
+        any_chunk_succeeded = False
+        for chunk_index, chunk in enumerate(chunks):
+            logical_id = "extract" if len(chunks) == 1 else f"extract.c{chunk_index}"
+            try:
+                result: ExtractionResult = await _call(
+                    llm,
+                    logical_id,
+                    settings.openai_model_extraction,
+                    build_extraction_messages(sections_block, chunk.text),
+                    ExtractionResult,
+                    usages,
+                )
+            except Exception as exc:  # noqa: BLE001 - isolate one chunk's failure
+                logger.exception("extraction chunk %d failed for sheet %s", chunk_index, sheet_id)
+                await write_event(
+                    pool,
+                    sheet_id,
+                    "error",
+                    f"extraction chunk {chunk_index} failed: {exc}",
+                    {"chunk": chunk_index},
+                )
+                continue
+            any_chunk_succeeded = True
+            by_key = {se.section_key: se for se in result.sections}
+            for disc in discovery.sections:
+                extracted_section = by_key.get(disc.key)
+                rows = extracted_section.rows if extracted_section is not None else []
+                per_section_chunks[disc.key].append(_ground_and_normalize(raw_text, rows))
 
-        async def extract_section(index: int, section: DiscoverySection) -> ResolvedSection | None:
-            async with semaphore:
-                try:
-                    # Extract over each chunk, grounding every value against the
-                    # full canonical text so its span is a full-text offset, then
-                    # merge with row de-duplication. A single-chunk document keeps
-                    # the original logical id and behavior, so existing cassettes
-                    # and the single-pass path are unchanged.
-                    cell_lists: list[list[ResolvedCell]] = []
-                    for chunk_index, chunk in enumerate(chunks):
-                        logical_id = (
-                            f"extract.{section.key}"
-                            if len(chunks) == 1
-                            else f"extract.{section.key}.c{chunk_index}"
-                        )
-                        extraction: ExtractionResult = await _call(
-                            llm,
-                            logical_id,
-                            settings.openai_model_extraction,
-                            build_extraction_messages(_section_definition(section), chunk.text),
-                            ExtractionResult,
-                            usages,
-                        )
-                        cell_lists.append(_ground_and_normalize(raw_text, extraction))
-                    cells = (
-                        cell_lists[0]
-                        if len(cell_lists) == 1
-                        else chunking.merge_resolved(cell_lists)
-                    )
-                    columns = (
-                        [{"key": c.key, "label": c.label} for c in section.columns]
-                        if section.columns
-                        else None
-                    )
-                    # Per-section completion event. Emitted as each section finishes
-                    # extraction (after grounding, before verification and typing) so
-                    # the UI can reveal the sheet section by section off the stream.
-                    # The render_hint here is the discovery proposal; the final hint
-                    # is settled in the typing pass and read from the sheet payload.
-                    await write_event(
-                        pool,
-                        sheet_id,
-                        "section",
-                        f"section {section.label} extracted",
-                        {
-                            "key": section.key,
-                            "label": section.label,
-                            "sort": index,
-                            "kind": section.kind,
-                            "cell_count": len(cells),
-                        },
-                    )
-                    return ResolvedSection(
-                        key=section.key,
-                        label=section.label,
-                        kind=section.kind,
-                        render_hint=section.render_hint,
-                        category=section.category,
-                        columns=columns,
-                        sort=index,
-                        confidence=None,
-                        cells=cells,
-                    )
-                except Exception as exc:  # noqa: BLE001 - isolate one section's failure
-                    logger.exception("section %s failed for sheet %s", section.key, sheet_id)
-                    await write_event(
-                        pool,
-                        sheet_id,
-                        "error",
-                        f"section {section.key} failed: {exc}",
-                        {"section": section.key},
-                    )
-                    return None
+        if not any_chunk_succeeded:
+            raise RuntimeError("extraction failed for every chunk")
 
-        extracted = await asyncio.gather(
-            *(extract_section(i, s) for i, s in enumerate(discovery.sections))
-        )
-        sections = [section for section in extracted if section is not None]
+        sections: list[ResolvedSection] = []
+        for index, disc in enumerate(discovery.sections):
+            cell_lists = per_section_chunks[disc.key]
+            cells = cell_lists[0] if len(cell_lists) == 1 else chunking.merge_resolved(cell_lists)
+            columns = (
+                [{"key": c.key, "label": c.label} for c in disc.columns] if disc.columns else None
+            )
+            # Per-section completion event (after grounding, before verification and
+            # typing) so the UI can reveal the sheet section by section off the
+            # stream. The render_hint here is the discovery proposal; the final hint
+            # is settled in the typing pass and read from the sheet payload.
+            await write_event(
+                pool,
+                sheet_id,
+                "section",
+                f"section {disc.label} extracted",
+                {
+                    "key": disc.key,
+                    "label": disc.label,
+                    "sort": index,
+                    "kind": disc.kind,
+                    "cell_count": len(cells),
+                },
+            )
+            sections.append(
+                ResolvedSection(
+                    key=disc.key,
+                    label=disc.label,
+                    kind=disc.kind,
+                    render_hint=disc.render_hint,
+                    category=disc.category,
+                    columns=columns,
+                    sort=index,
+                    confidence=None,
+                    cells=cells,
+                )
+            )
+
         # Drop facts a later section repeats from an earlier one, before
         # verification, so the sheet is not bulkier than it needs to be and the
         # repeated values are not paid for again in the verification pass.
@@ -357,42 +379,34 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
             )
         await write_event(pool, sheet_id, "extraction", "extraction complete")
 
-        # Pass 3: verification (parallel per section), dropping unsupported values.
+        # Pass 3: verification. One call checks every value across all sections,
+        # dropping only those it explicitly marks unsupported. Grounding already
+        # guarantees every quote exists, so a value the model does not address
+        # survives. A verification failure must not invent trust: if the call fails
+        # after retries, the values are dropped rather than kept unverified.
         await write_event(pool, sheet_id, "verification", "verification started")
-
-        async def verify_section(section: ResolvedSection) -> None:
-            if not section.cells:
-                return
-            async with semaphore:
-                try:
-                    verification: VerificationResult = await _call(
-                        llm,
-                        f"verify.{section.key}",
-                        settings.openai_model_verification,
-                        build_verification_messages(_values_block(section.cells)),
-                        VerificationResult,
-                        usages,
-                    )
-                    section.cells = _drop_unsupported(section.cells, verification)
-                except Exception as exc:  # noqa: BLE001 - a verification failure must
-                    # not invent trust; drop the section's values rather than keep
-                    # them unverified, and record the failure.
-                    logger.warning(
-                        "verification for %s failed for sheet %s: %s",
-                        section.key,
-                        sheet_id,
-                        exc,
-                    )
-                    await write_event(
-                        pool,
-                        sheet_id,
-                        "error",
-                        f"verification for {section.key} failed: {exc}",
-                        {"section": section.key},
-                    )
+        if any(section.cells for section in sections):
+            try:
+                verification: VerificationResult = await _call(
+                    llm,
+                    "verify",
+                    settings.openai_model_verification,
+                    build_verification_messages(_all_values_block(sections)),
+                    VerificationResult,
+                    usages,
+                )
+                _apply_verdicts(sections, verification)
+            except Exception as exc:  # noqa: BLE001 - drop rather than keep unverified
+                logger.warning("verification failed for sheet %s: %s", sheet_id, exc)
+                await write_event(
+                    pool,
+                    sheet_id,
+                    "error",
+                    f"verification failed: {exc}",
+                    None,
+                )
+                for section in sections:
                     section.cells = []
-
-        await asyncio.gather(*(verify_section(section) for section in sections))
         await write_event(pool, sheet_id, "verification", "verification complete")
 
         # Pass 4: render typing (deterministic, chart rule).

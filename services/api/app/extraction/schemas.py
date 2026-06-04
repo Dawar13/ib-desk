@@ -69,12 +69,24 @@ class ExtractionRow(BaseModel):
     cells: list[ExtractionCell]
 
 
-class ExtractionResult(BaseModel):
+class SectionExtraction(BaseModel):
+    # One discovered section's extracted rows. section_key ties the rows back to
+    # the section the discovery pass proposed.
     section_key: str
     rows: list[ExtractionRow]
 
 
+class ExtractionResult(BaseModel):
+    # Every section extracted in a single call. The document is sent to the model
+    # once per chunk and all sections come back together, instead of re-sending the
+    # whole document once per section, which was the dominant extraction cost.
+    sections: list[SectionExtraction]
+
+
 class VerificationVerdict(BaseModel):
+    # section_key identifies which section the value belongs to, so one
+    # verification call can return a verdict for every value across all sections.
+    section_key: str
     row_idx: int
     col_key: str | None
     supported: bool

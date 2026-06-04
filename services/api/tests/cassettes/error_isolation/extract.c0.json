@@ -1,0 +1,43 @@
+{
+  "data": {
+    "sections": [
+      {
+        "section_key": "investors_capital",
+        "rows": [
+          {
+            "row_idx": 0,
+            "cells": [
+              {
+                "col_key": "investor",
+                "value": "Vertex Ventures",
+                "source_snippet": "In 2023 Acme closed a Series B of 30 million dollars led by Vertex Ventures.",
+                "unit": null,
+                "period": "2023",
+                "confidence": 0.95
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "section_key": "overview",
+        "rows": [
+          {
+            "row_idx": 0,
+            "cells": [
+              {
+                "col_key": null,
+                "value": "Acme Robotics builds warehouse automation systems and serves enterprise customers.",
+                "source_snippet": "Acme Robotics builds warehouse automation systems.",
+                "unit": null,
+                "period": null,
+                "confidence": 0.9
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "usage": {"prompt_tokens": 900, "completion_tokens": 160, "cached_prompt_tokens": 0}
+}

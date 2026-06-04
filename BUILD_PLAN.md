@@ -145,28 +145,34 @@ Pass 1, discovery. Input: full `raw_text`. Output:
 }
 ```
 
-Pass 2, extraction, run once per section in parallel. Input: `raw_text` plus one section definition. Output:
+Pass 2, extraction, run once for the whole document, returning every section in one call (extraction prompt v5). Input: `raw_text` plus the full list of section definitions. The document is sent once rather than once per section, which was the dominant cost; a document too large for one pass is split into ordered overlapping chunks and each chunk is one such call, merged per section. Output:
 
 ```json
 {
-  "section_key": "investors_capital",
-  "rows": [
+  "sections": [
     {
-      "row_idx": 0,
-      "cells": [
-        { "col_key": "name", "value_raw": "Elevation Capital", "value_norm": "Elevation Capital", "source_snippet": "In 2023 Meridian closed a Series B led by Elevation Capital.", "char_start": 4120, "char_end": 4188, "confidence": 0.95 },
-        { "col_key": "amount", "value_raw": "$24M", "value_norm": "24000000", "unit": "USD", "period": "2023", "source_snippet": "...closed a 24 million dollar Series B...", "char_start": 4090, "char_end": 4140, "confidence": 0.92 }
+      "section_key": "investors_capital",
+      "rows": [
+        {
+          "row_idx": 0,
+          "cells": [
+            { "col_key": "name", "value_raw": "Elevation Capital", "value_norm": "Elevation Capital", "source_snippet": "In 2023 Meridian closed a Series B led by Elevation Capital.", "char_start": 4120, "char_end": 4188, "confidence": 0.95 },
+            { "col_key": "amount", "value_raw": "$24M", "value_norm": "24000000", "unit": "USD", "period": "2023", "source_snippet": "...closed a 24 million dollar Series B...", "char_start": 4090, "char_end": 4140, "confidence": 0.92 }
+          ]
+        }
       ]
     }
   ]
 }
 ```
 
+Cost note (extraction prompt v5, 2026-06-04). The original design sent the full document once per proposed section, so a document with a dozen sections was sent to the model a dozen times, which dominated cost and latency. Pass 2 now extracts every section in a single call (one per chunk for an over-budget document), so the document is sent once. Verification (Pass 3) is likewise a single call over all values, each value carrying its section key so the verdicts map back. Error isolation moved from per-section to per-chunk: a chunk that fails after retries is skipped and reported and the run proceeds on the chunks that succeeded, which also keeps a long PDF from failing wholesale. Grounding, normalization, determinism, and the no-fabrication rule are unchanged: every value still carries a verbatim supporting sentence, the span is still service-computed, and an ungrounded value is still dropped.
+
 Phase 2 note on offsets. The character offsets `char_start` and `char_end` are service-computed, not model-reported. The model returns a value and a verbatim supporting sentence only; it never reports offsets. The grounding step in the service locates that supporting sentence inside `documents.raw_text` and computes `char_start` and `char_end` from where it actually occurs. A value whose supporting sentence cannot be located in the source is ungrounded and is dropped. The example offsets shown in the extraction contract above are illustrative of the stored shape; in the running engine those numbers come from the service, not from the model. The `value_norm` field is likewise computed deterministically by the service, not by the model. This is the cardinal anti-fabrication mechanism and it is unchanged in this build: a value with no locatable source sentence does not appear.
 
 Phase 3 note on scalar field labels (extraction prompt v2). For a scalar section, each value carries a `col_key` that is a short, human-readable field label naming what the value is, drawn from how the document presents it (for example "Roll number" or "Date of birth"). Without it, a scalar section renders as an unlabeled "Row 1, Row 2" list because the keyvalue UI has nothing to name each value with. The label is organizational and must stay faithful to the source; it is not a value and does not weaken grounding, since the value itself is still tied to its verbatim supporting sentence. Tabular sections continue to use their declared columns as `col_key`, and longtext sections leave `col_key` null. This is a live-extraction behavior only: it takes effect when a document is re-extracted, and the secret-free replay cassette gates are unaffected because they load recorded responses verbatim.
 
-Pass 3, verification. For each cell, confirm the `source_snippet` actually supports `value_raw`. Drop or flag cells that fail. Can be a cheaper model or a rule plus model hybrid. Records a `fabrication_flag` where grounding is weak.
+Pass 3, verification (verification prompt v2). One call confirms, for every cell across all sections, that the `source_snippet` actually supports `value_raw`; each value carries its section key so the verdicts map back. Cells that fail are dropped. Can run on a cheaper model. Records a `fabrication_flag` where grounding is weak.
 
 Pass 4, render typing. Assign each section a `render_hint`:
 
@@ -207,12 +213,12 @@ Progress streaming uses SSE from FastAPI, or Supabase Realtime on `extraction_ev
 Synchronous for documents that fit in the model context, which covers the 20 to 40 page research docs in scope. For larger documents, add a chunk and merge fallback in Phase 5.
 
 - Discovery: one call, low temperature, structured output. Keep a soft taxonomy of common section types in the prompt so the model maps into stable keys rather than inventing wildly different keys for the same concept across runs. The taxonomy is a guide, not a constraint. The model may add new sections, including qualitative insight sections, not only numeric ones.
-- Extraction: parallel per section with a concurrency limit and exponential backoff on rate limits. Per-section error isolation so one failure does not halt the sheet. Instruct for exhaustiveness: extract every instance present, summarize important narrative into clean prose, do not drop qualitative value.
+- Extraction: one call returns every section, with exponential backoff on rate limits. A document too large for one pass is split into ordered overlapping chunks, each chunk is one such call, and per-chunk error isolation means a failing chunk does not halt the sheet. Instruct for curation, not dumping: extract the distinct high-value facts a banker would use, summarize important narrative into clean prose, do not restate the same fact across sections, do not drop qualitative value.
 - Verification: catches fabrication, which is the failure that destroys banker trust. A value with no supporting snippet is dropped, not shown.
 - Typing: cheap, mostly deterministic given the cells, with the chart rule above.
 - Cost tracking: accumulate token cost per call into `sheets.cost_usd`. Emit an event per stage for the progress UI.
 
-Cost note (Phase 5). The extraction pass re-sends the full document once per section, which is the dominant model cost, so extraction prompt v3 places the document BEFORE the per-section instruction. That makes the stable prefix (the system rules plus the document) identical across a run's section calls, so OpenAI prompt caching bills the repeated document at the cached rate after the first call. Only the order changes; content and output are unchanged, so there is no quality cost. The service captures the cached-input token count the API reports and records a real `sheets.cost_usd` from configurable per-token prices (default zero, so no cost is fabricated until prices are set), with the cached tokens and the cost on the `done` event. Verification is a yes/no support check and can run on a cheaper model (env `OPENAI_MODEL_VERIFICATION`) with no quality loss, a further cost lever left to the deploy config.
+Cost note (Phase 5, revised 2026-06-04). The dominant model cost was the extraction pass re-sending the full document once per section: a document with a dozen sections was sent to the model a dozen times. Extraction prompt v5 removes that multiplier by extracting every section in a single call (one per chunk for an over-budget document), so the document is sent once, and verification (prompt v2) is likewise a single call over all values. This cuts the call count and the latency as well as the cost, with no quality loss, because the model still sees the whole document and now sees the whole schema at once (which helps it avoid restating a fact across sections). The document is still placed before the section list so the system rules plus document remain a cacheable prefix, which still helps on re-extraction and across chunks. The service captures the cached-input token count the API reports and records a real `sheets.cost_usd` from configurable per-token prices (default zero, so no cost is fabricated until prices are set), with the cached tokens and the cost on the `done` event. Verification is a yes/no support check and can run on a cheaper model (env `OPENAI_MODEL_VERIFICATION`) with no quality loss, a further cost lever left to the deploy config.
 
 ## Rendering, dynamic UI
 
@@ -282,7 +288,7 @@ Deferred OCR decision. Phase 1 does not run OCR. PDFs are parsed as born-digital
 
 ### Phase 2: Schema-agnostic extraction engine
 Goal: prove the core works across very different documents.
-Deliverables: the four-pass pipeline, the discovery and extraction JSON contracts, persistence into `sections` and `cells`, per-section parallelism with backoff and error isolation, cost tracking, the SSE events stream, and the eval harness. The model never reports offsets; grounding computes `char_start` and `char_end` by locating the supporting sentence in `raw_text`, and `value_norm` is computed deterministically by the service. Ungrounded values are dropped. This phase ships a deliberately plain, debug-only rendering; the visual grid, charts, evidence drawer, and styled export are later phases. The labeled golden set is descoped by the owner and replaced by a label-free eval (fabrication rate, grounding resolution, value-level stability) plus the secret-free cassette logic gates.
+Deliverables: the four-pass pipeline, the discovery and extraction JSON contracts, persistence into `sections` and `cells`, single-call multi-section extraction with backoff and per-chunk error isolation, cost tracking, the SSE events stream, and the eval harness. The model never reports offsets; grounding computes `char_start` and `char_end` by locating the supporting sentence in `raw_text`, and `value_norm` is computed deterministically by the service. Ungrounded values are dropped. This phase ships a deliberately plain, debug-only rendering; the visual grid, charts, evidence drawer, and styled export are later phases. The labeled golden set is descoped by the owner and replaced by a label-free eval (fabrication rate, grounding resolution, value-level stability) plus the secret-free cassette logic gates.
 Interfaces introduced: POST /v1/sheets/{id}/extract, GET /v1/sheets/{id}/events, GET /v1/sheets/{id} (populated payload once done), the discovery and extraction schemas, the RenderHint enum.
 Acceptance: feed three structurally different documents and get three sensible, distinct schemas with grounded data. The label-free eval meets the bar. Fabrication rate near zero. The secret-free cassette logic gates pass in replay mode with no OpenAI key.
 
@@ -324,6 +330,6 @@ PHASE 5 COMPLETE (owner-confirmed, 2026-06-04). The deterministic gates are gree
 - Schema stability: discovery can vary run to run. Mitigate with low temperature, a soft section taxonomy, and a stable prompt. Measure variance in evals. A model at temperature zero is near-deterministic, not perfectly guaranteed, so normalization and verification carry the burden of value consistency.
 - Chart correctness: auto-generated charts can mislead. The chart rule is conservative and the user can toggle charts off. Verify the rule on real data.
 - Parsing messy PDFs: scanned or badly laid out PDFs are their own hard problem. Decided in Phase 1: no OCR yet. Born-digital PDFs are parsed directly; scanned or unreadable PDFs are rejected with a clear 422 scanned_or_unreadable rather than ingested as empty text. OCR is deferred to a later phase.
-- Cost: four passes with per-section parallelism uses more tokens. Track per-sheet cost and consider a cheaper model for verification and typing.
+- Cost: the extraction pass is the dominant token cost. It returns every section in one call so the document is sent once, not once per section; verification is a single call too. Track per-sheet cost and consider a cheaper model for verification.
 - Confidentiality: this is finance research. Decide data retention, encryption, and whether documents may be sent to a third-party model at all, before any real client data is loaded.
 - Model selection: confirm the exact OpenAI models for each pass.

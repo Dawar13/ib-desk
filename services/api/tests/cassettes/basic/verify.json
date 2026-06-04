@@ -2,18 +2,27 @@
   "data": {
     "verdicts": [
       {
+        "section_key": "investors_capital",
         "row_idx": 0,
         "col_key": "investor",
         "supported": true,
         "reason": "the quoted sentence names Vertex Ventures as the lead investor"
       },
       {
+        "section_key": "investors_capital",
         "row_idx": 0,
         "col_key": "amount",
         "supported": false,
         "reason": "marked unsupported in this fixture to exercise verification removal"
+      },
+      {
+        "section_key": "overview",
+        "row_idx": 0,
+        "col_key": null,
+        "supported": true,
+        "reason": "the summary is grounded in the quoted sentence"
       }
     ]
   },
-  "usage": {"prompt_tokens": 400, "completion_tokens": 80}
+  "usage": {"prompt_tokens": 500, "completion_tokens": 120, "cached_prompt_tokens": 0}
 }

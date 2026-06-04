@@ -4,7 +4,7 @@ no model and no secret. These are the secret-free hard gates for the engine.
 Covered: grounding-by-search drops a fabricated quote and the kept value's span
 resolves back to its sentence; verification removes an unsupported value;
 normalization produces value_norm; re-extraction atomically replaces (idempotent);
-one failing section is isolated and the rest of the sheet still completes.
+one failing chunk is isolated and the rest of the sheet still completes.
 """
 
 from __future__ import annotations
@@ -98,7 +98,6 @@ def _configure(monkeypatch: pytest.MonkeyPatch, scenario: str) -> None:
     monkeypatch.setattr(settings, "openai_model_discovery", "test")
     monkeypatch.setattr(settings, "openai_model_extraction", "test")
     monkeypatch.setattr(settings, "openai_model_verification", "test")
-    monkeypatch.setattr(settings, "extraction_concurrency", 4)
 
 
 def test_grounding_and_verification(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,8 +197,16 @@ def test_idempotent_reextraction(monkeypatch: pytest.MonkeyPatch) -> None:
     asyncio.run(scenario())
 
 
-def test_error_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chunk_error_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure(monkeypatch, "error_isolation")
+    # Force the document into two chunks with a tiny budget. The first chunk
+    # (extract.c0) has a cassette and succeeds; the second has none and fails. The
+    # sheet still completes from the first chunk: a failing chunk is isolated, not
+    # fatal. This is the resilience that keeps a long PDF from failing wholesale.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "single_pass_char_budget", 150)
+    monkeypatch.setattr(settings, "chunk_overlap_chars", 20)
+    monkeypatch.setattr(settings, "max_chunks", 50)
 
     async def scenario() -> None:
         pool = await _make_pool()
@@ -208,23 +215,28 @@ def test_error_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
             await run_extraction(pool, get_settings(), sheet_id)
 
             sections = await _sections_with_cells(pool, sheet_id)
-            # investors_capital fails (its extract cassette is missing); overview
-            # still completes.
-            assert set(sections.keys()) == {"overview"}
+            # Both sections come from the chunk that succeeded.
+            assert set(sections.keys()) == {"investors_capital", "overview"}
+            assert [c["value_raw"] for c in sections["investors_capital"]] == ["Vertex Ventures"]
+            assert len(sections["overview"]) == 1
+
             errors = await pool.fetch(
                 "select message from extraction_events "
                 "where sheet_id = $1::uuid and stage = 'error'",
                 sheet_id,
             )
-            assert any("investors_capital" in (row["message"] or "") for row in errors)
-            # The failing section emits no per-section completion event; only the
-            # section that finished extraction does.
+            # The failed second chunk is reported as an error event, never silent.
+            assert any("chunk 1" in (row["message"] or "") for row in errors)
+
             section_events = await pool.fetch(
                 "select payload from extraction_events "
                 "where sheet_id = $1::uuid and stage = 'section'",
                 sheet_id,
             )
-            assert {row["payload"]["key"] for row in section_events} == {"overview"}
+            assert {row["payload"]["key"] for row in section_events} == {
+                "investors_capital",
+                "overview",
+            }
             sheet = await pool.fetchrow("select status from sheets where id = $1::uuid", sheet_id)
             assert sheet["status"] == "done"
 

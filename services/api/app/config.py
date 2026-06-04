@@ -59,8 +59,6 @@ class Settings(BaseSettings):
     openai_model_discovery: str = ""
     openai_model_extraction: str = ""
     openai_model_verification: str = ""
-    # Per-section extraction concurrency limit for the parallel extraction pass.
-    extraction_concurrency: int = 5
 
     # In-app cost estimate (Phase 5). Prices per 1,000,000 tokens. Defaults are
     # 0.0 so no cost is fabricated until you set your actual model prices; with

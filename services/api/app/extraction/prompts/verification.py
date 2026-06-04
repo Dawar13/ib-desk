@@ -1,13 +1,18 @@
-"""Verification prompt (Pass 3), version 1.
+"""Verification prompt (Pass 3), version 2.
 
 For each extracted value and its quoted supporting sentence, confirm the sentence
 genuinely supports the value, not merely that it exists. A confidently wrong value
 is the worst output the product can produce, so anything that fails is removed.
+
+Version 2 verifies every value across all sections in a single call rather than one
+call per section. Each value carries its section key alongside its row index and
+column key, so the verdicts map back unambiguously, and the saving is fewer calls
+and lower latency.
 """
 
 from __future__ import annotations
 
-VERIFICATION_PROMPT_VERSION = "1"
+VERIFICATION_PROMPT_VERSION = "2"
 
 _SYSTEM = """\
 You verify extracted values for an M&A and investment banking team. You are given
@@ -22,7 +27,8 @@ Rules:
 - Be strict. When in doubt, mark supported false. Omitting a weakly supported
   value is always better than keeping a wrong one.
 - Give a one-line reason for each decision.
-- Return a verdict for every value, identified by its row index and column key.
+- Return a verdict for every value, identified by its section key, row index, and
+  column key exactly as given.
 """
 
 
