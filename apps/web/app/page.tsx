@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CreateDocumentResponse, DocumentListItem } from "@ib-desk/shared";
-import { listDocuments } from "@/lib/api";
+import { listDocuments, withColdStartRetry } from "@/lib/api";
 import DocumentSidebar from "@/components/DocumentSidebar";
 import IngestPanel from "@/components/IngestPanel";
 import DocumentView from "@/components/DocumentView";
@@ -16,14 +16,21 @@ export default function Home() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  // True while the first request is being retried through a cold start, so the UI
+  // can show a friendly "waking the server" message instead of a hard failure.
+  const [warming, setWarming] = useState<boolean>(false);
 
   const refresh = useCallback(async (): Promise<DocumentListItem[]> => {
     setError(null);
     try {
-      const items = await listDocuments();
+      // Retry through a free-tier cold start (a sleeping server returns 502s with
+      // no CORS headers for ~50s), surfacing a warming state rather than an error.
+      const items = await withColdStartRetry(listDocuments, () => setWarming(true));
       setDocuments(items);
+      setWarming(false);
       return items;
     } catch (err) {
+      setWarming(false);
       setError(err instanceof Error ? err.message : "Unknown error");
       return [];
     } finally {
@@ -51,6 +58,7 @@ export default function Home() {
         documents={documents}
         selectedId={selectedId}
         loading={loading}
+        warming={warming}
         error={error}
         onSelect={setSelectedId}
       />

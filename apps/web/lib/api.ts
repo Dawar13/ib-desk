@@ -69,6 +69,33 @@ async function throwFromResponse(res: Response): Promise<never> {
   throw new IngestError("Request failed with status " + res.status, null);
 }
 
+// Render's free tier spins the service down after idle, so the first request
+// after a quiet spell can fail or time out during the ~50 second cold start. Run
+// a read through this to retry on failure with backoff, calling onWaking so the
+// UI can show a friendly "waking the server" message instead of a scary failure,
+// then give up with the last error. Use only for idempotent reads (a GET), never
+// for a non-idempotent write like an upload, where a retry could duplicate.
+export async function withColdStartRetry<T>(
+  fn: () => Promise<T>,
+  onWaking?: () => void,
+  delaysMs: number[] = [2000, 4000, 6000, 9000, 12000, 15000, 18000],
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= delaysMs.length; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      if (attempt === delaysMs.length) {
+        break;
+      }
+      onWaking?.();
+      await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]));
+    }
+  }
+  throw lastError;
+}
+
 export async function listDocuments(): Promise<DocumentListItem[]> {
   const res = await fetch(API_BASE + "/v1/documents", {
     cache: "no-store",

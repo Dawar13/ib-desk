@@ -12,6 +12,8 @@ interface DocumentSidebarProps {
   documents: DocumentListItem[];
   selectedId: string | null;
   loading: boolean;
+  // True while the first request is retrying through a free-tier cold start.
+  warming?: boolean;
   error: string | null;
   onSelect: (id: string) => void;
 }
@@ -29,6 +31,7 @@ export default function DocumentSidebar({
   documents,
   selectedId,
   loading,
+  warming = false,
   error,
   onSelect,
 }: DocumentSidebarProps) {
@@ -47,6 +50,11 @@ export default function DocumentSidebar({
         {error ? (
           <p className="px-4 py-3 text-sm text-red-700" role="alert">
             Could not load documents: {error}
+          </p>
+        ) : warming ? (
+          <p className="px-4 py-3 text-sm text-gray-600" role="status">
+            Waking the server. The free instance sleeps when idle, so the first
+            load after a while can take up to a minute.
           </p>
         ) : loading ? (
           <p className="px-4 py-3 text-sm text-gray-500">Loading documents</p>
