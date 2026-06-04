@@ -16,8 +16,8 @@ from __future__ import annotations
 import io
 from dataclasses import dataclass
 
-import pdfplumber
 from docx import Document as DocxDocument
+from pypdf import PdfReader
 
 
 @dataclass(frozen=True)
@@ -34,10 +34,13 @@ def _count_nonspace(segments: list[str]) -> int:
 
 
 def parse_pdf(data: bytes) -> ParseResult:
-    segments: list[str] = []
-    with pdfplumber.open(io.BytesIO(data)) as pdf:
-        for page in pdf.pages:
-            segments.append(page.extract_text() or "")
+    # pypdf extracts the born-digital text layer with a fraction of the memory of a
+    # layout-analyzing parser, so a long, graphics-heavy report (the 20-40 page
+    # research documents in scope) parses within a small instance instead of
+    # exhausting memory and crashing the worker mid-upload. It does not render
+    # images, so a scanned, image-only PDF yields no text and is detected as such.
+    reader = PdfReader(io.BytesIO(data))
+    segments: list[str] = [(page.extract_text() or "") for page in reader.pages]
     return ParseResult(
         segments=segments,
         page_count=len(segments),
