@@ -58,10 +58,11 @@ def test_events_stream_returns_sse(client: TestClient) -> None:
                 "sample text",
             )
             await pool.execute(
-                "insert into sheets (id, document_id, title, status) "
-                "values ($1::uuid, $2::uuid, $3, 'done')",
+                "insert into sheets (id, document_id, workspace_id, title, status) "
+                "values ($1::uuid, $2::uuid, $3::uuid, $4, 'done')",
                 sheet_id,
                 doc_id,
+                WORKSPACE,
                 "SSE test (sample)",
             )
             await pool.execute(
