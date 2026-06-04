@@ -23,6 +23,15 @@ services:
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health
     autoDeploy: true
+    # Only redeploy the API when its own code, its dependency lock, or a database
+    # migration changes. Without this, every push to main (including web-only and
+    # docs commits) redeploys the API, and each redeploy takes the free instance
+    # down for a few minutes, which looks like the API "randomly" going offline.
+    # Paths are relative to the repository root.
+    buildFilter:
+      paths:
+        - services/api/**
+        - db/**
     envVars:
       - key: STORAGE_BACKEND
         value: local
