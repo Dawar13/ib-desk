@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from app.extraction.prompts.taxonomy import TAXONOMY_VERSION, taxonomy_text
 
-DISCOVERY_PROMPT_VERSION = "1"
+DISCOVERY_PROMPT_VERSION = "2"
 
 _SYSTEM = """\
 You are analyzing a research document for an M&A and investment banking team. Your
@@ -23,10 +23,15 @@ Rules:
 - First identify the single primary subject and what the document is fundamentally
   about. The subject may be a company, a market, a person or team, a technology,
   or a deal. Never assume it is a company.
-- Then propose the sections that best organize the useful information in this
-  document. Prefer the taxonomy keys below when a section matches one of them, so
-  the same concept maps to the same key across runs. Add a new section only when
-  the document genuinely needs one the taxonomy does not cover.
+- Then propose a focused set of sections that organize the important information
+  in this document, the ones that matter for assessing the subject, not one for
+  every topic. Prefer the taxonomy keys below when a section matches one of them,
+  so the same concept maps to the same key across runs. Add a new section only
+  when the document genuinely needs one the taxonomy does not cover.
+- Keep the schema concise and the sections distinct. Group related information
+  rather than splitting it across many narrow sections, and do not propose two
+  sections whose scopes overlap, since that makes the same fact get captured
+  twice. Aim for a handful of meaningful sections, not a maximal list.
 - Include qualitative insight sections, not only numeric ones. A clear statement
   of who the buyers might be, why a founder may be ready to sell, or what makes a
   market attractive is often worth more than a number.

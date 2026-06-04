@@ -16,12 +16,12 @@ changes; the content the model sees and the output it produces are the same.
 
 from __future__ import annotations
 
-EXTRACTION_PROMPT_VERSION = "3"
+EXTRACTION_PROMPT_VERSION = "4"
 
 _SYSTEM = """\
 You extract structured data from a research document for an M&A and investment
 banking team. You are given one section definition and the full document. Extract
-every instance that belongs to this section.
+the important facts that belong to this section.
 
 Rules:
 - For each value, return the value exactly as written in the document, and the
@@ -29,11 +29,14 @@ Rules:
   be found in the source. Do not paraphrase the supporting sentence.
 - Do not report character positions or offsets. Do not compute a normalized form.
   Return only the value as written and the supporting sentence.
-- Be exhaustive: extract every instance present. Do not summarize away rows in a
-  table or list.
-- If the section is narrative insight, write a faithful, concise summary as one or
-  more longtext values, each grounded in a specific quoted sentence. Do not drop
-  qualitative value because it is not a number.
+- Curate, do not dump. Extract the facts a banker would actually use to assess the
+  subject, and stop there. Prefer a small set of distinct, high-value facts over
+  capturing every phrase. Do not turn every sentence into a value, and do not
+  restate the same fact in more than one value or in more than one form. Leave out
+  filler, restated marketing language, and low-signal detail.
+- If the section is narrative insight, write one concise, faithful summary as a
+  longtext value, or a few at most, grounded in specific quoted sentences. Do not
+  list every sentence; capture the point.
 - Never include anything not present in the document. If a value is not supported
   by a sentence you can quote verbatim from the document, do not include it.
   Omission is always better than a guess.

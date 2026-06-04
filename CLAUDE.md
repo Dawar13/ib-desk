@@ -14,7 +14,7 @@ The user is a working M&A and investment banking professional. The single test f
 
 1. The schema is discovered, never hardcoded. The code must never assume the document is about a company. The structure of every sheet is decided per document, at runtime, from the content.
 2. Content determinism. The same document must yield the same set of relevant data and the same values across runs. Section ordering and visual positioning may vary between runs. The data and the values may not. Where a value is X in one generation, it must be X in every generation.
-3. Exhaustive and general. Capture everything useful, structured or qualitative. Important narrative is summarized into clean insight sections, not dropped because it is not a number. Aim for coverage, not a tidy minimum.
+3. Curated and general. Capture the information that matters to a banker, structured or qualitative, as a clean set of distinct facts rather than every phrase. Important narrative is summarized into clean insight sections, not dropped because it is not a number. Prefer a smaller set of high-value, non-repeated facts over exhaustive coverage: relevance over volume. Revised 2026-06-04 from the original "capture everything" after the maximalist output proved too bulky, repetitive, and costly; grounding and no-fabrication are unchanged.
 4. Always grounded. Every value carries the exact supporting sentence from the source, its character span into the source text, and a confidence score. If it is not supported by the source, it does not appear.
 5. Never fabricate. When support is weak, omit the item or flag it with low confidence. This is the cardinal rule. A single invented figure in front of a client destroys trust in the entire product.
 6. One document maps to one sheet. Documents are never merged into a shared sheet.
@@ -59,7 +59,7 @@ ib-desk/
 The product lives or dies on model behavior, so the discovery, extraction, and verification prompts must be designed deliberately. The actual prompts are delivered in the phase specs. They must encode the following:
 
 - Discover the core topic first, classify the document type, then propose sections that fit the document, including qualitative insight sections, not only numeric ones.
-- Be exhaustive. Extract every instance present. Summarize important narrative into clean prose. Do not drop qualitative value because it is not structured.
+- Curate, do not dump. Extract the important, distinct facts a banker would use, not every instance, and do not restate the same fact across sections. Summarize important narrative into clean prose. Do not drop genuine qualitative value because it is not structured.
 - Be deterministic in content. Map to stable section keys via the soft taxonomy. Normalize values consistently so the same underlying fact renders identically on every run.
 - Ground everything. Every value needs a verbatim supporting sentence and a character span. No support means no output.
 - Never fabricate. Prefer omission. Where confidence is low, say so through the confidence score rather than presenting a guess as fact.

@@ -163,6 +163,31 @@ def _drop_unsupported(
     return [cell for cell in cells if (cell.row_idx, cell.col_key) not in rejected]
 
 
+def _dedupe_across_sections(sections: list[ResolvedSection]) -> int:
+    """Drop a value that a later section repeats from an earlier one.
+
+    Each section is extracted independently and cannot see the others, so the same
+    grounded fact can land in several sections and read as repetition. A fact is
+    identified by its source span plus its written value, so two distinct values
+    quoted from the same sentence are both kept, but the identical value from the
+    identical sentence is kept only in the first section that has it (sections are
+    in display order). Returns how many duplicates were removed.
+    """
+    seen: set[tuple[int | None, int | None, str]] = set()
+    removed = 0
+    for section in sections:
+        kept: list[ResolvedCell] = []
+        for cell in section.cells:
+            key = (cell.char_start, cell.char_end, cell.value_raw or cell.value_norm or "")
+            if key in seen:
+                removed += 1
+                continue
+            seen.add(key)
+            kept.append(cell)
+        section.cells = kept
+    return removed
+
+
 async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
     """Run the four passes for one sheet and persist the result idempotently."""
     llm = get_llm()
@@ -318,6 +343,18 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
             *(extract_section(i, s) for i, s in enumerate(discovery.sections))
         )
         sections = [section for section in extracted if section is not None]
+        # Drop facts a later section repeats from an earlier one, before
+        # verification, so the sheet is not bulkier than it needs to be and the
+        # repeated values are not paid for again in the verification pass.
+        removed = _dedupe_across_sections(sections)
+        if removed:
+            await write_event(
+                pool,
+                sheet_id,
+                "extraction",
+                f"removed {removed} duplicate values repeated across sections",
+                {"deduped": removed},
+            )
         await write_event(pool, sheet_id, "extraction", "extraction complete")
 
         # Pass 3: verification (parallel per section), dropping unsupported values.

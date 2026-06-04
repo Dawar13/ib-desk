@@ -10,7 +10,7 @@ A user uploads a research document about anything: a company, a market, a person
 
 1. The schema is discovered, not hardcoded. The code never assumes the document is about a company.
 2. Content determinism. The same document must yield the same set of relevant data and the same values across runs. Section ordering and visual positioning may vary. The data and values may not.
-3. Exhaustive and general. Capture everything useful, structured or qualitative. Important narrative is summarized into clean insight sections, not dropped because it is not a number.
+3. Curated and general. Capture the information that matters to a banker, structured or qualitative, as a clean set of distinct facts rather than every phrase, and de-duplicate facts that would otherwise repeat across sections. Important narrative is summarized into clean insight sections. Revised 2026-06-04 from "capture everything": relevance over volume, with grounding and no-fabrication unchanged.
 4. Every extracted value is grounded: it carries the exact source sentence, a character span into the source text, and a confidence score. If it is not supported by the source, it does not appear.
 5. Never fabricate. When support is weak, omit or flag with low confidence. A single invented figure destroys trust.
 6. One document maps to exactly one sheet. No cross-document merging.
