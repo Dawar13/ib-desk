@@ -70,7 +70,7 @@ function ChartOrTable({ section, onEvidence }: RendererProps) {
           aria-pressed={view === "chart"}
           className={cx(
             "px-3 py-1 transition-colors",
-            view === "chart" ? "bg-ink text-paper" : "bg-surface text-muted hover:bg-ink/[0.04]",
+            view === "chart" ? "bg-primary text-white" : "bg-surface text-muted hover:bg-primary-tint",
           )}
         >
           Chart
@@ -81,7 +81,7 @@ function ChartOrTable({ section, onEvidence }: RendererProps) {
           aria-pressed={view === "table"}
           className={cx(
             "border-l border-line px-3 py-1 transition-colors",
-            view === "table" ? "bg-ink text-paper" : "bg-surface text-muted hover:bg-ink/[0.04]",
+            view === "table" ? "bg-primary text-white" : "bg-surface text-muted hover:bg-primary-tint",
           )}
         >
           Table

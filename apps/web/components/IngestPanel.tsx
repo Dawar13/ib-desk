@@ -160,8 +160,8 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
             className={
               "flex h-40 cursor-pointer flex-col items-center justify-center rounded-md border-2 border-dashed px-4 text-center text-sm transition-colors " +
               (dragActive
-                ? "border-ink bg-paper text-ink"
-                : "border-line bg-paper text-muted hover:border-ink/40")
+                ? "border-primary bg-primary-tint text-ink"
+                : "border-line bg-paper text-muted hover:border-primary/50")
             }
           >
             <span className="font-medium">
@@ -193,7 +193,7 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
               placeholder="Document name"
               aria-label="Document name"
               disabled={busy}
-              className="block w-full rounded-md border border-line px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-ink focus:outline-none focus:ring-1 focus:ring-ink/30 disabled:bg-paper"
+              className="block w-full rounded-md border border-line px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-paper"
             />
           </label>
           <label className="mt-2 block">
@@ -205,14 +205,14 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
               aria-label="Pasted text"
               rows={4}
               disabled={busy}
-              className="block w-full resize-y rounded-md border border-line px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-ink focus:outline-none focus:ring-1 focus:ring-ink/30 disabled:bg-paper"
+              className="block w-full resize-y rounded-md border border-line px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:bg-paper"
             />
           </label>
           <button
             type="button"
             onClick={() => void submitPaste()}
             disabled={!canSubmitPaste}
-            className="mt-2 rounded-md bg-ink px-4 py-2 text-sm font-medium text-paper transition-colors hover:bg-ink/90 disabled:cursor-not-allowed disabled:bg-line disabled:text-faint"
+            className="mt-2 rounded-md bg-primary-deep px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary disabled:cursor-not-allowed disabled:bg-line disabled:text-faint"
           >
             Add pasted text
           </button>

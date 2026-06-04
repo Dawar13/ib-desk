@@ -32,7 +32,7 @@ export default function DownloadControls({ sheetId, disabled }: DownloadControls
       <a
         href={exportUrl(sheetId, "xlsx")}
         data-download="xlsx"
-        className="bg-ink px-3 py-1 font-medium text-paper transition-colors hover:bg-ink/90"
+        className="bg-primary-deep px-3 py-1 font-medium text-white transition-colors hover:bg-primary"
       >
         Download Excel
       </a>

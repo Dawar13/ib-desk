@@ -24,7 +24,14 @@ import {
 import type { SectionWithCells } from "@ib-desk/shared";
 import { categoryAccent } from "@/lib/sheet/category";
 import type { ChartData, ChartPoint } from "@/lib/sheet/chart";
+import { palette } from "@/lib/theme";
 import type { EvidenceHandler } from "../types";
+
+// recharts needs raw color strings, so the grid and axis chrome reads its
+// neutrals from the palette rather than a Tailwind class. The slice palette below
+// is the section category accent set and is intentionally left as is.
+const GRID = palette.line;
+const AXIS = palette.muted;
 
 const SLICE_PALETTE = [
   "#8c6b4f",
@@ -104,11 +111,11 @@ export default function SectionChart({
       <ResponsiveContainer width="100%" height="100%">
         {isBar ? (
           <BarChart data={data.points}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e6ddcc" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6c6456" }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: AXIS }} />
             <YAxis
               width={56}
-              tick={{ fontSize: 12, fill: "#6c6456" }}
+              tick={{ fontSize: 12, fill: AXIS }}
               tickFormatter={(value: number) => compact.format(value)}
             />
             <Tooltip />
@@ -116,11 +123,11 @@ export default function SectionChart({
           </BarChart>
         ) : (
           <LineChart data={data.points}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e6ddcc" vertical={false} />
-            <XAxis dataKey="label" tick={{ fontSize: 12, fill: "#6c6456" }} />
+            <CartesianGrid strokeDasharray="3 3" stroke={GRID} vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 12, fill: AXIS }} />
             <YAxis
               width={56}
-              tick={{ fontSize: 12, fill: "#6c6456" }}
+              tick={{ fontSize: 12, fill: AXIS }}
               tickFormatter={(value: number) => compact.format(value)}
             />
             <Tooltip />
