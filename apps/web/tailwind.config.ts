@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import { palette } from "./lib/theme";
 
 const config: Config = {
   content: [
@@ -8,17 +9,26 @@ const config: Config = {
   ],
   theme: {
     extend: {
-      // Warm paper palette for the sheet. These structural tokens are used as
-      // static class names (bg-paper, text-ink, border-line), so they are never
+      // Cool blue palette sampled from the owner's sky photo, sourced from
+      // lib/theme so class-name consumers and raw-color consumers (recharts)
+      // share one definition. These structural tokens are used as static class
+      // names (bg-paper, text-ink, border-line, bg-primary), so they are never
       // purged. Category accents and confidence colors are applied as inline
-      // styles from data, not class names, since those are data-driven.
+      // styles from data, not class names, since those are data-driven and
+      // semantic, and they are intentionally not part of this palette.
       colors: {
-        paper: "#f4eee2",
-        surface: "#fffdf9",
-        line: "#e6ddcc",
-        ink: "#2b2722",
-        muted: "#6c6456",
-        faint: "#9a9182",
+        paper: palette.paper,
+        surface: palette.surface,
+        ink: palette.ink,
+        muted: palette.muted,
+        faint: palette.faint,
+        line: { DEFAULT: palette.line, strong: palette.lineStrong },
+        primary: {
+          DEFAULT: palette.primary,
+          deep: palette.primaryDeep,
+          tint: palette.primaryTint,
+        },
+        cloud: palette.cloud,
       },
       fontFamily: {
         serif: ['Georgia', 'Cambria', '"Times New Roman"', "Times", "serif"],

@@ -2,9 +2,10 @@
 @tailwind components;
 @tailwind utilities;
 
-/* The product reads as a warm paper spreadsheet. The body carries the paper
-   background and ink text so every page inherits the look; individual surfaces
-   (cards, the header, the drawer) lift off it with the surface token. */
+/* The product reads as a cool blue spreadsheet, with a palette sampled from the
+   owner's sky photo. The body carries the paper background and ink text so every
+   page inherits the look; individual surfaces (cards, the header, the drawer)
+   lift off it with the surface token. */
 @layer base {
   body {
     @apply bg-paper text-ink antialiased;

@@ -3,10 +3,11 @@
 import type { DocumentListItem } from "@ib-desk/shared";
 import { sourceKindLabel } from "@/lib/labels";
 
-// The left sidebar. Lists documents most recent first (the service already
-// orders by created_at desc) and shows a clear empty state when there are none.
-// Clicking a document selects it. The list and selection are owned by the page;
-// this component is presentational and reports clicks upward.
+// The left sidebar. Below the Documents header sits the sky banner, the sidebar's
+// signature element; below that the document list (most recent first, the service
+// already orders by created_at desc) or a clear empty state. Clicking a document
+// selects it. The list and selection are owned by the page; this component is
+// presentational and reports clicks upward.
 
 interface DocumentSidebarProps {
   documents: DocumentListItem[];
@@ -38,29 +39,43 @@ export default function DocumentSidebar({
   return (
     <nav
       aria-label="Documents"
-      className="flex w-72 shrink-0 flex-col border-r border-gray-200 bg-gray-50"
+      className="flex w-72 shrink-0 flex-col border-r border-line bg-paper"
     >
-      <div className="border-b border-gray-200 px-4 py-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600">
+      <div className="border-b border-line px-4 py-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted">
           Documents
         </h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      {/* The sky banner sits directly below the header, the sidebar's signature
+          element, with the document list lined up below it. The image is purely
+          decorative, so its alt is empty. A plain img is deliberate: this is one
+          static brand asset, so next/image's optimization and build-time coupling
+          are unwanted. */}
+      <div className="px-4 py-3">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/brand/sky.jpg"
+          alt=""
+          className="h-32 w-full rounded-md border border-line bg-primary-tint object-cover object-center"
+        />
+      </div>
+
+      <div className="flex-1 overflow-y-auto border-t border-line">
         {error ? (
           <p className="px-4 py-3 text-sm text-red-700" role="alert">
             Could not load documents: {error}
           </p>
         ) : warming ? (
-          <p className="px-4 py-3 text-sm text-gray-600" role="status">
+          <p className="px-4 py-3 text-sm text-muted" role="status">
             Waking the server. The free instance sleeps when idle, so the first
             load after a while can take up to a minute.
           </p>
         ) : loading ? (
-          <p className="px-4 py-3 text-sm text-gray-500">Loading documents</p>
+          <p className="px-4 py-3 text-sm text-faint">Loading documents</p>
         ) : documents.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-gray-500">
-            <p className="font-medium text-gray-700">No documents yet</p>
+          <div className="px-4 py-6 text-sm text-faint">
+            <p className="font-medium text-muted">No documents yet</p>
             <p className="mt-1">
               Upload a PDF or DOCX, or paste text, to get started.
             </p>
@@ -76,14 +91,14 @@ export default function DocumentSidebar({
                     aria-current={selected ? "true" : undefined}
                     onClick={() => onSelect(doc.id)}
                     className={
-                      "block w-full border-b border-gray-100 px-4 py-3 text-left transition-colors " +
+                      "block w-full border-b border-line px-4 py-3 text-left transition-colors " +
                       (selected
-                        ? "bg-white font-medium text-gray-900"
-                        : "text-gray-700 hover:bg-gray-100")
+                        ? "bg-primary-tint font-medium text-ink"
+                        : "text-muted hover:bg-primary-tint/60")
                     }
                   >
                     <span className="block truncate">{doc.name}</span>
-                    <span className="mt-1 block truncate text-xs text-gray-500">
+                    <span className="mt-1 block truncate text-xs text-faint">
                       {metaLine(doc)}
                     </span>
                   </button>

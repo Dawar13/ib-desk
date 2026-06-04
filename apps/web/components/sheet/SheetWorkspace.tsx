@@ -305,7 +305,7 @@ export default function SheetWorkspace({
             className={cx(
               "px-3 py-1 text-sm font-medium transition-colors",
               canExtract
-                ? "bg-ink text-paper hover:bg-ink/90"
+                ? "bg-primary-deep text-white hover:bg-primary"
                 : "cursor-not-allowed bg-line text-faint",
             )}
           >
