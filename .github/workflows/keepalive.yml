@@ -1,0 +1,45 @@
+name: Keep-alive
+
+# Pings the staging API's /health on a schedule so Render's free instance does
+# not spin down (it idles after about 15 minutes). A warm instance means the
+# shared demo link loads instantly instead of waiting out a ~50 second cold
+# start, during which Render returns header-less 502s that look like a CORS error.
+#
+# This runs on GitHub-hosted runners, which are free for public repositories, so
+# it costs nothing. It is best-effort: GitHub can delay scheduled runs under load,
+# and scheduled workflows pause after ~60 days with no repo activity, so the
+# in-app cold-start retry (apps/web/lib/api.ts withColdStartRetry) remains the
+# safety net. Tighten the interval to */5 if you see the instance still going cold.
+#
+# If the API URL changes, update HEALTH_URL below.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+env:
+  HEALTH_URL: https://ib-desk-api.onrender.com/health
+
+jobs:
+  ping:
+    name: Ping the API health endpoint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Warm the instance
+        shell: bash
+        run: |
+          # Retry so a ping that itself lands on a cold start still wakes the
+          # instance rather than recording a one-off 502.
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -s -m 60 -o /dev/null -w "%{http_code}" "$HEALTH_URL" || true)
+            echo "attempt $attempt: HTTP $code"
+            if [ "$code" = "200" ]; then
+              echo "API is warm."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "API did not return 200 after retries; it may be cold-starting or down."
+          # Do not fail the workflow: a transient miss should not spam failure alerts.
+          exit 0
