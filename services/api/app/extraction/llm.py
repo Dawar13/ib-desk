@@ -32,6 +32,10 @@ _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 class Usage:
     prompt_tokens: int
     completion_tokens: int
+    # Input tokens served from the prompt cache (the document re-sent across a
+    # run's section calls). Billed at the cheaper cached rate; tracked so the
+    # caching savings are visible. Zero when nothing was cached.
+    cached_prompt_tokens: int = 0
 
 
 class LLMError(RuntimeError):
@@ -71,6 +75,7 @@ class LLMClient:
         usage = Usage(
             prompt_tokens=int(usage_payload.get("prompt_tokens", 0)),
             completion_tokens=int(usage_payload.get("completion_tokens", 0)),
+            cached_prompt_tokens=int(usage_payload.get("cached_prompt_tokens", 0)),
         )
         return parsed, usage
 
@@ -92,9 +97,13 @@ class LLMClient:
             refusal = getattr(message, "refusal", None)
             raise LLMError(f"Model returned no parsed output (refusal: {refusal})")
         usage_obj = completion.usage
+        # OpenAI reports cached input tokens under prompt_tokens_details.cached_tokens.
+        details = getattr(usage_obj, "prompt_tokens_details", None)
+        cached = int(getattr(details, "cached_tokens", 0) or 0) if details is not None else 0
         usage = Usage(
             prompt_tokens=int(getattr(usage_obj, "prompt_tokens", 0) or 0),
             completion_tokens=int(getattr(usage_obj, "completion_tokens", 0) or 0),
+            cached_prompt_tokens=cached,
         )
         return cast(T, parsed_obj), usage
 
@@ -105,6 +114,7 @@ class LLMClient:
             "usage": {
                 "prompt_tokens": usage.prompt_tokens,
                 "completion_tokens": usage.completion_tokens,
+                "cached_prompt_tokens": usage.cached_prompt_tokens,
             },
         }
         self._cassette_path(logical_id).write_text(

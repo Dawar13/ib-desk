@@ -61,6 +61,16 @@ class Settings(BaseSettings):
     openai_model_verification: str = ""
     # Per-section extraction concurrency limit for the parallel extraction pass.
     extraction_concurrency: int = 5
+
+    # In-app cost estimate (Phase 5). Prices per 1,000,000 tokens. Defaults are
+    # 0.0 so no cost is fabricated until you set your actual model prices; with
+    # them set, sheets.cost_usd reflects real spend, including the cheaper cached-
+    # input rate that the extraction prompt's caching produces. Set the cached
+    # input price to roughly half the input price (model-dependent) to see the
+    # saving the document-as-cached-prefix ordering yields.
+    openai_price_input_per_1m: float = 0.0
+    openai_price_cached_input_per_1m: float = 0.0
+    openai_price_output_per_1m: float = 0.0
     # Directory (relative to the service root) holding recorded cassettes.
     cassette_dir: str = "tests/cassettes"
 

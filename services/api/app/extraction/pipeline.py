@@ -20,7 +20,7 @@ import logging
 from typing import Any
 
 from app.config import Settings
-from app.extraction import chunking, grounding, valuenorm
+from app.extraction import chunking, cost, grounding, valuenorm
 from app.extraction.llm import LLMClient, Usage, get_llm
 from app.extraction.persist import (
     ResolvedCell,
@@ -368,7 +368,14 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
         # Persist atomically and finish.
         total_prompt = sum(u.prompt_tokens for u in usages)
         total_completion = sum(u.completion_tokens for u in usages)
-        field_count = await replace_content(pool, sheet_id, sections, 0.0, "done")
+        total_cached = sum(u.cached_prompt_tokens for u in usages)
+        cost_usd = cost.estimate_cost_usd(
+            usages,
+            settings.openai_price_input_per_1m,
+            settings.openai_price_cached_input_per_1m,
+            settings.openai_price_output_per_1m,
+        )
+        field_count = await replace_content(pool, sheet_id, sections, cost_usd, "done")
         await write_event(
             pool,
             sheet_id,
@@ -379,13 +386,19 @@ async def run_extraction(pool: Any, settings: Settings, sheet_id: str) -> None:
                 "fields": field_count,
                 "prompt_tokens": total_prompt,
                 "completion_tokens": total_completion,
+                "cached_prompt_tokens": total_cached,
+                "cost_usd": cost_usd,
             },
         )
         logger.info(
-            "extraction complete for sheet %s: %d sections, %d fields",
+            "extraction complete for sheet %s: %d sections, %d fields, "
+            "%d of %d input tokens cached, est cost $%.4f",
             sheet_id,
             len(sections),
             field_count,
+            total_cached,
+            total_prompt,
+            cost_usd,
         )
     except Exception as exc:  # noqa: BLE001 - any pipeline failure marks the sheet failed
         logger.exception("extraction pipeline failed for sheet %s", sheet_id)

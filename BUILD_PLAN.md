@@ -212,6 +212,8 @@ Synchronous for documents that fit in the model context, which covers the 20 to 
 - Typing: cheap, mostly deterministic given the cells, with the chart rule above.
 - Cost tracking: accumulate token cost per call into `sheets.cost_usd`. Emit an event per stage for the progress UI.
 
+Cost note (Phase 5). The extraction pass re-sends the full document once per section, which is the dominant model cost, so extraction prompt v3 places the document BEFORE the per-section instruction. That makes the stable prefix (the system rules plus the document) identical across a run's section calls, so OpenAI prompt caching bills the repeated document at the cached rate after the first call. Only the order changes; content and output are unchanged, so there is no quality cost. The service captures the cached-input token count the API reports and records a real `sheets.cost_usd` from configurable per-token prices (default zero, so no cost is fabricated until prices are set), with the cached tokens and the cost on the `done` event. Verification is a yes/no support check and can run on a cheaper model (env `OPENAI_MODEL_VERIFICATION`) with no quality loss, a further cost lever left to the deploy config.
+
 ## Rendering, dynamic UI
 
 The frontend reads `sections` and renders each by `render_hint`, with no knowledge of business concepts:

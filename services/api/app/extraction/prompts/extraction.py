@@ -1,15 +1,22 @@
-"""Extraction prompt (Pass 2), version 1.
+"""Extraction prompt (Pass 2).
 
 Run once per proposed section. Encodes the cardinal rule: never include a value
 that is not supported by a sentence that can be quoted verbatim from the document.
 The model returns each value exactly as written and the verbatim supporting
 sentence copied exactly; the service locates that sentence and computes the span,
 so the prompt forbids reporting character offsets.
+
+Cost note (v3): the full document is placed BEFORE the per-section instruction, so
+the stable prefix (the system rules plus the document) is byte-identical across
+every section's extraction call in a run. OpenAI prompt caching then bills the
+repeated document at the cached rate after the first call, instead of charging the
+full document once per section, which is the dominant cost. Only the order
+changes; the content the model sees and the output it produces are the same.
 """
 
 from __future__ import annotations
 
-EXTRACTION_PROMPT_VERSION = "2"
+EXTRACTION_PROMPT_VERSION = "3"
 
 _SYSTEM = """\
 You extract structured data from a research document for an M&A and investment
@@ -45,14 +52,17 @@ Rules:
 
 
 def build_extraction_messages(section_definition: str, canonical_text: str) -> list[dict[str, str]]:
+    # Document first (the stable, cacheable prefix), then the small per-section
+    # instruction last (the part that varies between the section calls of a run).
     user = (
-        "Section to extract:\n"
-        f"{section_definition}\n\n"
-        "Document text follows. Extract every supported value for this section, "
-        "each with its verbatim supporting sentence.\n\n"
         "=== DOCUMENT START ===\n"
         f"{canonical_text}\n"
-        "=== DOCUMENT END ==="
+        "=== DOCUMENT END ===\n\n"
+        "Extract the following section from the document above. Extract every "
+        "supported value for this section, each with its verbatim supporting "
+        "sentence.\n\n"
+        "Section to extract:\n"
+        f"{section_definition}"
     )
     return [
         {"role": "system", "content": _SYSTEM},

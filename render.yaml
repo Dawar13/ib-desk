@@ -32,8 +32,21 @@ services:
         value: gpt-5.5
       - key: OPENAI_MODEL_EXTRACTION
         value: gpt-5.5
+      # Verification is a yes/no "does this sentence support this value" check, so
+      # a cheaper model here cuts cost with no quality loss on the support check.
+      # Point this at a smaller model when one is available.
       - key: OPENAI_MODEL_VERIFICATION
         value: gpt-5.5
+      # Optional: set these to your real per-1,000,000-token prices to record an
+      # accurate sheets.cost_usd (input, cached input, output). Cached input is
+      # the discounted rate the extraction prompt's document-as-prefix caching
+      # hits. Left unset, the cost figure stays 0 rather than fabricating one.
+      # - key: OPENAI_PRICE_INPUT_PER_1M
+      #   value: "0"
+      # - key: OPENAI_PRICE_CACHED_INPUT_PER_1M
+      #   value: "0"
+      # - key: OPENAI_PRICE_OUTPUT_PER_1M
+      #   value: "0"
       - key: DB_POOL_MAX_SIZE
         value: "5"
       - key: DATABASE_URL
