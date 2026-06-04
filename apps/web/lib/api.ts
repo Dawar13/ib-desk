@@ -38,16 +38,20 @@ function workspaceHeaders(extra?: HeadersInit): Headers {
   return headers;
 }
 
-// Error subclass that carries the machine-readable ingestion code. The code is
-// optional because a failure may come from the network or a non-contract
-// status, in which case there is no detail.code to branch on.
+// Error subclass that carries the machine-readable ingestion code and the HTTP
+// status. The code is optional because a failure may come from the network or a
+// non-contract status, in which case there is no detail.code to branch on. The
+// status lets callers tell a real validation error (4xx) from a transient
+// server-side failure (5xx) worth retrying.
 export class IngestError extends Error {
   readonly code: IngestErrorCode | null;
+  readonly status: number | null;
 
-  constructor(message: string, code: IngestErrorCode | null) {
+  constructor(message: string, code: IngestErrorCode | null, status: number | null = null) {
     super(message);
     this.name = "IngestError";
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -63,22 +67,42 @@ async function throwFromResponse(res: Response): Promise<never> {
 
   const detail = (body as Partial<ApiErrorBody> | null)?.detail;
   if (detail && typeof detail.message === "string") {
-    throw new IngestError(detail.message, detail.code ?? null);
+    throw new IngestError(detail.message, detail.code ?? null, res.status);
   }
 
-  throw new IngestError("Request failed with status " + res.status, null);
+  throw new IngestError("Request failed with status " + res.status, null, res.status);
+}
+
+// Whether an error looks like a transient cold start, as opposed to a real
+// validation error to show immediately. A sleeping free instance returns a
+// header-less 502; because it has no CORS headers the browser blocks reading it
+// and fetch rejects with a TypeError, so a network-level failure is treated as a
+// cold start. A readable 5xx is too. A contract 4xx (which carries a sub-500
+// status) is a real error and is not retried, so a retry can never resubmit an
+// upload the server actually rejected, only one a cold server never received.
+export function isColdStartError(err: unknown): boolean {
+  if (err instanceof IngestError) {
+    return err.status === null || err.status >= 500;
+  }
+  return err instanceof TypeError;
 }
 
 // Render's free tier spins the service down after idle, so the first request
 // after a quiet spell can fail or time out during the ~50 second cold start. Run
-// a read through this to retry on failure with backoff, calling onWaking so the
-// UI can show a friendly "waking the server" message instead of a scary failure,
-// then give up with the last error. Use only for idempotent reads (a GET), never
-// for a non-idempotent write like an upload, where a retry could duplicate.
+// a request through this to retry on failure with backoff, calling onWaking so
+// the UI can show a friendly "waking the server" message instead of a scary
+// failure, then give up with the last error.
+//
+// shouldRetry decides which errors are retried; it defaults to all (right for an
+// idempotent GET). For a non-idempotent write like an upload, pass
+// isColdStartError so only a cold-start failure (a 502 the server never received)
+// is retried and a real validation error surfaces at once, so a retry can never
+// duplicate a document the server actually created.
 export async function withColdStartRetry<T>(
   fn: () => Promise<T>,
   onWaking?: () => void,
   delaysMs: number[] = [2000, 4000, 6000, 9000, 12000, 15000, 18000],
+  shouldRetry: (err: unknown) => boolean = () => true,
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= delaysMs.length; attempt += 1) {
@@ -86,7 +110,7 @@ export async function withColdStartRetry<T>(
       return await fn();
     } catch (err) {
       lastError = err;
-      if (attempt === delaysMs.length) {
+      if (attempt === delaysMs.length || !shouldRetry(err)) {
         break;
       }
       onWaking?.();

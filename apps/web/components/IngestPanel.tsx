@@ -6,6 +6,8 @@ import {
   createDocumentFile,
   createDocumentPaste,
   IngestError,
+  isColdStartError,
+  withColdStartRetry,
 } from "@/lib/api";
 import { ingestErrorMessage } from "@/lib/labels";
 
@@ -23,6 +25,9 @@ interface IngestPanelProps {
 
 export default function IngestPanel({ onCreated }: IngestPanelProps) {
   const [busy, setBusy] = useState<boolean>(false);
+  // True while a submit is retrying through a free-tier cold start, so the busy
+  // line reads "waking the server" rather than implying the upload is stuck.
+  const [waking, setWaking] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState<boolean>(false);
   const [pasteName, setPasteName] = useState<string>("");
@@ -39,24 +44,39 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
     }
   }
 
+  // Retry only a cold-start failure (a 502 the sleeping server never received),
+  // never a real validation error, so a retry can never duplicate the document.
   async function submitFile(file: File): Promise<void> {
     setBusy(true);
     setError(null);
+    setWaking(false);
     try {
-      const response = await createDocumentFile(file);
+      const response = await withColdStartRetry(
+        () => createDocumentFile(file),
+        () => setWaking(true),
+        undefined,
+        isColdStartError,
+      );
       onCreated(response);
     } catch (err) {
       reportError(err);
     } finally {
       setBusy(false);
+      setWaking(false);
     }
   }
 
   async function submitPaste(): Promise<void> {
     setBusy(true);
     setError(null);
+    setWaking(false);
     try {
-      const response = await createDocumentPaste(pasteName.trim(), pasteText);
+      const response = await withColdStartRetry(
+        () => createDocumentPaste(pasteName.trim(), pasteText),
+        () => setWaking(true),
+        undefined,
+        isColdStartError,
+      );
       setPasteName("");
       setPasteText("");
       onCreated(response);
@@ -64,6 +84,7 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
       reportError(err);
     } finally {
       setBusy(false);
+      setWaking(false);
     }
   }
 
@@ -200,7 +221,9 @@ export default function IngestPanel({ onCreated }: IngestPanelProps) {
 
       {busy ? (
         <p className="mt-4 text-sm text-muted" role="status">
-          Uploading and parsing the document
+          {waking
+            ? "Waking the server. The free instance sleeps when idle, so this can take up to a minute."
+            : "Uploading and parsing the document"}
         </p>
       ) : null}
 

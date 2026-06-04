@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CreateDocumentResponse, DocumentListItem } from "@ib-desk/shared";
-import { listDocuments, withColdStartRetry } from "@/lib/api";
+import { isColdStartError, listDocuments, withColdStartRetry } from "@/lib/api";
 import DocumentSidebar from "@/components/DocumentSidebar";
 import IngestPanel from "@/components/IngestPanel";
 import DocumentView from "@/components/DocumentView";
@@ -25,7 +25,12 @@ export default function Home() {
     try {
       // Retry through a free-tier cold start (a sleeping server returns 502s with
       // no CORS headers for ~50s), surfacing a warming state rather than an error.
-      const items = await withColdStartRetry(listDocuments, () => setWarming(true));
+      const items = await withColdStartRetry(
+        listDocuments,
+        () => setWarming(true),
+        undefined,
+        isColdStartError,
+      );
       setDocuments(items);
       setWarming(false);
       return items;
